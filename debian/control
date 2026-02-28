@@ -6,6 +6,11 @@ Uploaders: Yaroslav Halchenko <debian@onerussian.com>, Michael Hanke <michael.ha
 Build-Depends: debhelper (>= 11),
                autotools-dev,
                dh-octave | octave-pkg-dev (>= 0.5.7),
+               dh-sequence-python3,
+               pybuild-plugin-pyproject,
+               python3-setuptools,
+               libpython3-all-dev,
+               python3-all-dev:native,
                gfortran,
                gnuplot-nox | gnuplot,
                gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-libav,
@@ -41,6 +46,7 @@ Build-Depends: debhelper (>= 11),
                quilt,
                rsync,
                xvfb, xauth, libgl1-mesa-dri, xdotool,
+               python3-numpy,
 Build-Conflicts: libglew-dev (= 1.9.0.is.1.8.0-0ubuntu1), libglew-dev (= 1.9.0.is.1.8.0-0ubuntu2)
 Standards-Version: 4.3.0
 Homepage: http://psychtoolbox.org
@@ -132,6 +138,29 @@ Description: toolbox for vision research -- Octave bindings
  additional information about systems tune-up and initial configuration.
  .
  This package contains bindings for Octave.
+
+Package: python3-psychtoolbox
+Architecture: any
+Depends:
+ ${python3:Depends},
+ ${shlibs:Depends},
+ ${misc:Depends},
+Description: toolbox for vision research -- Python bindings
+ Psychophysics Toolbox Version 3 (PTB-3) is a free set of Matlab and
+ GNU/Octave functions for vision research. It makes it easy to
+ synthesize and show accurately controlled visual and auditory stimuli
+ and interact with the observer.
+ .
+ The Psychophysics Toolbox interfaces between Matlab or Octave and the
+ computer hardware. The Psychtoolbox's core routines provide access to
+ the display frame buffer and color lookup table, allow
+ synchronization with the vertical retrace, support millisecond
+ timing, allow access to OpenGL commands, and facilitate the
+ collection of observer responses. Ancillary routines support common
+ needs like color space transformations and the QUEST threshold
+ seeking algorithm.
+ .
+ This package contains extra python bindings.
 
 Package: psychtoolbox-3-dbg
 Section: debug

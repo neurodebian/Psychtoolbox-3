@@ -32,6 +32,8 @@ export CFLAGS=-Wall -g -O0 -std=gnu99 $(GLIB_INCLUDES) $(GST_INCLUDES)
 # Let's use "advanced" bash patterns
 export SHELL=/bin/bash
 
+export PYBUILD_NAME = psychtoolbox
+
 %:
 	dh $@ --with quilt --buildsystem=makefile
 
@@ -77,6 +79,8 @@ build-stamp:
 	: # Manually build tcp_udp_ip toolbox's extension
 	cd ./Psychtoolbox/PsychHardware/iViewXToolbox/tcp_udp_ip; \
 		octave -q --eval "mex pnet.c"; [ -f pnet.mex ]
+
+	dh_auto_build --buildsystem=pybuild
 
 	install --mode=0644 PsychSourceGL/Cohorts/FTGLTextRenderer/libptbdrawtext_ftgl.so.1 \
 	   Psychtoolbox/PsychBasic/PsychPlugins
@@ -128,6 +132,8 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
       -e PTBAndIsetbioColorimetryTest \
 	| xargs debian/run_tests || echo "TESTS FAILED"
 
+	dh_auto_test --buildsystem=pybuild
+
 #      -e MovieDemos \
 	: # Cleanup
 	find -iname MLIexpSubj11.txt -delete
@@ -139,6 +145,7 @@ endif
 
 override_dh_auto_install:
 	dh_auto_install
+	dh_auto_install --buildsystem=pybuild
 	: # to guarantee -common existance for arch-dep builds only:
 	mkdir -p $(OCT_SHAREDDIR)
 	rsync -a --exclude=*.o ./Psychtoolbox/ $(OCT_SHAREDDIR)
