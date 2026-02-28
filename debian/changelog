@@ -1,3 +1,9 @@
+psychtoolbox-3 (3.0.19.14.dfsg1-1.1) UNRELEASED; urgency=medium
+
+  * Attempt to introduce a python3-psychtoolbox package.
+
+ -- Étienne Mollier <emollier@debian.org>  Tue, 24 Feb 2026 22:37:25 +0100
+
 psychtoolbox-3 (3.0.19.14.dfsg1-1) unstable; urgency=medium
 
   * debian/dfsg-upstream - improve listing of left non-source - list only
