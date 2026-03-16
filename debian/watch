@@ -1,6 +1,4 @@
-version=3
-# at least lets monitor possible SVN tags
-# opts="versionmangle=s/-//,dversionmangle=s/.dfsg.*$//" \
-#   ...  Psychtoolbox-([^-]*)-*.*
-# TODO: monitor https://github.com/Psychtoolbox-3/Psychtoolbox-3
-# but requires heavy version tuning into our/reasonable one ;-)
+version=4
+opts="dversionmangle=s/\.dfsg\d*$//" \
+https://github.com/Psychtoolbox-3/Psychtoolbox-3/tags \
+  .*?/(\d[\d.]+)@ARCHIVE_EXT@

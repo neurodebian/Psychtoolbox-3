@@ -1,4 +1,4 @@
-Bugs: https://github.com/Psychtoolbox-3/Psychtoolbox-3/issues
+Bug-Database: https://github.com/Psychtoolbox-3/Psychtoolbox-3/issues
 Contact: http://psychtoolbox.org/PsychtoolboxForum
 FAQ: http://psychtoolbox.org/PsychtoolboxFaq
 Repository: git://github.com/Psychtoolbox-3/Psychtoolbox-3.git
@@ -21,10 +21,8 @@ Reference:
   Year: 1997
   DOI: 10.1163/156856897X00366
   PMID: 9176953
-Acknowledgment:
+Cite-As:
   If you want to acknowledge use of this software when you publish your
   research, you might say something like this, "We wrote our experiments
   in Octave (or Matlab), using the Psychophysics Toolbox extensions
   (Brainard, 1997;  Pelli, 1997)."
-Tags:
-  - field::neuroscience:psychophysics

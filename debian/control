@@ -3,8 +3,7 @@ Section: science
 Priority: optional
 Maintainer: NeuroDebian Team <team@neuro.debian.net>
 Uploaders: Yaroslav Halchenko <debian@onerussian.com>, Michael Hanke <michael.hanke@gmail.com>
-Build-Depends: debhelper (>= 11),
-               autotools-dev,
+Build-Depends: debhelper-compat (= 11),
                dh-octave,
                dh-sequence-python3,
                pybuild-plugin-pyproject,
@@ -39,7 +38,6 @@ Build-Depends: debhelper (>= 11),
                libxml2-dev,
                libxrandr-dev,
                libxxf86vm-dev,
-               lsb-base (>= 11),
                matlab-support-dev,
                portaudio19-dev,
                pulseaudio-utils, octave-image,

@@ -1,3 +1,15 @@
+psychtoolbox-3 (3.0.22.2.dfsg1-2) unstable; urgency=medium
+
+  * d/control
+    - Use debhelper-compat (= 11) instead of debian/compat file
+    - Remove obsolete autotools-dev and lsb-base from Build-Depends
+  * d/watch: Update to version 4, monitor GitHub tags with dversionmangle
+  * d/upstream/metadata
+    - Rename Bugs to Bug-Database, Acknowledgment to Cite-As (DEP-12)
+    - Remove non-standard Tags field
+
+ -- Yaroslav Halchenko <debian@onerussian.com>  Tue, 17 Mar 2026 08:40:47 -0400
+
 psychtoolbox-3 (3.0.22.2.dfsg1-1) unstable; urgency=medium
 
   [ Étienne Mollier ]
