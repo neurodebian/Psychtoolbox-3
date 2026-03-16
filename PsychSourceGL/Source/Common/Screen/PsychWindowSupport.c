@@ -45,11 +45,6 @@
 
 #include "Screen.h"
 
-// Define this for non-Waffle builds:
-#ifndef WAFFLE_PLATFORM_WAYLAND
-#define WAFFLE_PLATFORM_WAYLAND 0x0014
-#endif
-
 #if PSYCH_SYSTEM == PSYCH_LINUX
 #include <errno.h>
 // utsname for uname() so we can find out on which kernel we're running:
@@ -83,6 +78,14 @@ static void* nvstusb_plugin = NULL;
 static struct nvstusb_context* nvstusb_goggles = NULL;
 #endif
 static double nvsttriggerdelay = 0;
+
+// Demo mode settings for educational/teaching license:
+static psych_bool demoOnlyMode = FALSE;
+
+// Bits 0 - 6 used.
+static unsigned int demoDisableMask = 0;
+static double demoSessionEndTime = 0;
+static double demoSessionDegradeTime = 0;
 
 #if PSYCH_SYSTEM != PSYCH_WINDOWS
 #include "ptbstartlogo.h"
@@ -201,7 +204,7 @@ static void PsychDrawSplash(PsychWindowRecordType* windowRecord, double jiggle)
     glClear(GL_COLOR_BUFFER_BIT);
 
     // Draw splash image texture at visual level 4+:
-    if ((PsychPrefStateGet_VisualDebugLevel() >= 4) && splashTextureRecord && (PsychGetParentWindow(splashTextureRecord) == windowRecord)) {
+    if ((demoOnlyMode || (PsychPrefStateGet_VisualDebugLevel() >= 4)) && splashTextureRecord && (PsychGetParentWindow(splashTextureRecord) == windowRecord)) {
         splashTextureRecord->clientrect[kPsychLeft] -= jiggle;
         splashTextureRecord->clientrect[kPsychRight] += jiggle;
         PsychBlitTextureToDisplay(splashTextureRecord, windowRecord, splashTextureRecord->rect, splashTextureRecord->clientrect, 0, 1, 1);
@@ -210,6 +213,69 @@ static void PsychDrawSplash(PsychWindowRecordType* windowRecord, double jiggle)
     }
 
     return;
+}
+
+static void PsychDrawDemoSplash(PsychWindowRecordType* windowRecord)
+{
+    static unsigned int splashFrameCount = 0;
+    static double heading = 45.0;
+    static double lx = 10;
+    static double ly = 10;
+    PsychColorType textColor = { .mode = kPsychRGBAColor, .value.rgba = { 1023, 1023, 1023, 1023 }};
+    PsychColorType bgColor = { .mode = kPsychRGBAColor, .value.rgba = { 0, 0, 0, 1023 }};
+    int oldTextSize;
+    unsigned int maxHeight = 400;
+    float zoom = 0.5;
+    double x = 10;
+    double y = 10;
+    double xp = x;
+    double yp = y;
+    double tNow = PsychGetAdjustedPrecisionTimerSeconds(NULL);
+
+    if ((demoSessionEndTime != 0) && (demoSessionEndTime < tNow))
+        PsychErrorExitMsg(PsychError_user, "This session has exceeded its maximum allowable duration under this teaching and eduction license. Aborting session.");
+
+    if (((demoSessionDegradeTime != 0) && (demoSessionDegradeTime < tNow))) {
+        psych_bool blending_on = (int) glIsEnabled(GL_BLEND);
+        glDisable(GL_BLEND);
+        PsychSetShader(windowRecord, 0);
+
+        heading+= 20 * (((double) rand() / (double) RAND_MAX) - 0.5);
+        lx+= 2 * sin(heading * 3.141593 / 180.0);
+        ly+= 2 * cos(heading * 3.141593 / 180.0);
+
+        if (lx < 1) lx = PsychGetWidthFromRect(windowRecord->clientrect) - 10;
+        if (lx > PsychGetWidthFromRect(windowRecord->clientrect) - 1) lx = 10;
+        if (ly < 1) ly = PsychGetHeightFromRect(windowRecord->clientrect) - 10;
+        if (ly > PsychGetHeightFromRect(windowRecord->clientrect) - 1) ly = 10;
+
+        glRasterPos2d(lx + 1, ly + 1);
+        glPixelZoom(zoom, -zoom);
+        glDrawPixels(splash_image.width, maxHeight < splash_image.height ? maxHeight : splash_image.height,
+                     splash_image.bytes_per_pixel, GL_UNSIGNED_BYTE, splash_image.pixel_data);
+        glPixelZoom(1, 1);
+        if (blending_on)
+            glEnable(GL_BLEND);
+    }
+
+    oldTextSize = windowRecord->textAttributes.textSize;
+    windowRecord->textAttributes.textSize = PsychGetHeightFromRect(windowRecord->clientrect) * 0.025;
+    PsychDrawCharText(windowRecord, "LICENSE FOR TEACHING USE ONLY, NO RESEARCH USE!", &xp, &yp, 0, &textColor, &bgColor, NULL);
+    xp = x; yp+= 1.1 * windowRecord->textAttributes.textSize;
+    PsychDrawCharText(windowRecord, "Functionality, reliability and precision is intentionally degraded.", &xp, &yp, 0, &textColor, &bgColor, NULL);
+
+    if ((demoSessionEndTime != 0) && ((demoDisableMask & (1 << 5)) || (demoSessionEndTime - tNow < 30))) {
+        char countDownStr[64] = { 0 };
+        snprintf(countDownStr, sizeof(countDownStr), "Time left until forced end of this session: %i seconds.", (int) (demoSessionEndTime - tNow));
+        xp = x; yp+= 1.1 * windowRecord->textAttributes.textSize;
+        PsychDrawCharText(windowRecord, countDownStr, &xp, &yp, 0, &textColor, &bgColor, NULL);
+    }
+
+    xp = x; yp = windowRecord->clientrect[kPsychBottom] - 2.2 * windowRecord->textAttributes.textSize;
+    PsychDrawCharText(windowRecord, "LICENSE FOR TEACHING USE ONLY, NO RESEARCH USE!", &xp, &yp, 0, &textColor, &bgColor, NULL);
+    xp = x; yp+= 1.1 * windowRecord->textAttributes.textSize;
+    PsychDrawCharText(windowRecord, "Functionality, reliability and precision is intentionally degraded.", &xp, &yp, 0, &textColor, &bgColor, NULL);
+    windowRecord->textAttributes.textSize = oldTextSize;
 }
 
 // Dynamic rebinding of ARB extensions to core routines:
@@ -270,6 +336,17 @@ void PsychRebindARBExtensionsToCore(void)
     return;
 }
 
+// Simple crc32 checksumming hash - good enough for our low security demands:
+static uint32_t crc32(const uint8_t *data, size_t length) {
+    uint32_t crc = ~0U;
+    while (length--) {
+        crc ^= *data++;
+        for (int i = 0; i < 8; i++) {
+            crc = (crc >> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+        }
+    }
+    return ~crc;
+}
 
 /*
     PsychOpenOnscreenWindow()
@@ -344,15 +421,58 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
     char splashPath[FILENAME_MAX];
     char* dummychar;
     FILE* splashFd;
+    psych_uint32 crc_hash;
+    double demoProFeatureTimeout, demoVisualDegradeTimeout, demoAudioDegradeTimeout, demoSessionTimeout;
+    const char* demoOnlyModeStr = NULL;
 
     (void) dummychar;
+
+    // Define general mode of operation:
+    demoOnlyMode |= PsychIsLicensed("TeachingUseOnly", &demoOnlyModeStr);
+    if (demoOnlyMode) {
+        // Teaching license only: Parse its v1 type parameters:
+        demoOnlyModeStr = strstr(demoOnlyModeStr, "v1: ");
+        if (!demoOnlyModeStr || (5 != sscanf(demoOnlyModeStr, "v1: %i %lf %lf %lf %lf", &demoDisableMask, &demoSessionTimeout, &demoProFeatureTimeout,
+                                             &demoVisualDegradeTimeout, &demoAudioDegradeTimeout))) {
+            demoDisableMask = 0xffffffff;
+            demoProFeatureTimeout = 0;
+            demoVisualDegradeTimeout = 20;
+            demoAudioDegradeTimeout = 20;
+            demoSessionTimeout = 60;
+            printf("PTB-WARNING: Failed to parse disable bits for this teaching and education license. Will go for maximum restrictions.\n");
+        }
+
+        if ((demoDisableMask & (1 << 0)) && (screenSettings->screenNumber != 0)) {
+            printf("PTB-ERROR: You tried to open an onscreen window on screen %i, but only use of screen 0 is\n", screenSettings->screenNumber);
+            printf("PTB-ERROR: allowed under this teaching and education license. Aborting.\n");
+            return(FALSE);
+        }
+
+        if ((demoDisableMask & (1 << 1)) && (screenSettings->depth.depths[0] != 24 && screenSettings->depth.depths[0] != 32)) {
+            printf("PTB-ERROR: You tried to open an onscreen window with deep color precision, but this\n");
+            printf("PTB-ERROR: is not allowed under this teaching and education license. Aborting.\n");
+            return(FALSE);
+        }
+
+        if ((demoDisableMask & (1 << 2)) && (vrrMode != kPsychVRROff)) {
+            printf("PTB-ERROR: You tried to open an onscreen window with fine-grained VRR presentation timing,\n");
+            printf("PTB-ERROR: but this is not allowed under this teaching and education license. Aborting.\n");
+            return(FALSE);
+        }
+
+        if ((demoDisableMask & (1 << 3)) && (stereomode != kPsychMonoscopic)) {
+            printf("PTB-ERROR: You tried to open an onscreen window with stereoscopic presentation, but\n");
+            printf("PTB-ERROR: this is not allowed under this teaching and education license. Aborting.\n");
+            return(FALSE);
+        }
+    }
 
     // OS-9 emulation? If so, then we only work in double-buffer mode:
     if (PsychPrefStateGet_EmulateOldPTB()) numBuffers = 2;
 
     // Child protection: We need 2 AUX buffers for compressed stereo.
     if ((conserveVRAM & kPsychDisableAUXBuffers) && (stereomode==kPsychCompressedTLBRStereo || stereomode==kPsychCompressedTRBLStereo)) {
-        printf("ERROR! You tried to disable AUX buffers via Screen('Preference', 'ConserveVRAM')\n while trying to use compressed stereo, which needs AUX-Buffers!\n");
+        printf("PTB-ERROR! You tried to disable AUX buffers via Screen('Preference', 'ConserveVRAM')\n while trying to use compressed stereo, which needs AUX-Buffers!\n");
         return(FALSE);
     }
 
@@ -363,17 +483,43 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
     //call PsychPurgeInvalidWindows which will clean up the window record.
     PsychCreateWindowRecord(windowRecord);          //this also fills the window index field.
 
+    // Only one onscreen window allowed in demoOnlyMode:
+    if (demoOnlyMode && (demoDisableMask & (1 << 4)) && ((*windowRecord)->windowIndex != PSYCH_FIRST_WINDOW)) {
+        printf("PTB-ERROR: You tried to open more than one onscreen window, but only one onscreen window is allowed\n");
+        printf("PTB-ERROR: with this teaching and education license. Aborting.\n");
+
+        FreeWindowRecordFromPntr(*windowRecord);
+        return(FALSE);
+    }
+
+    // Need setup of session timeouts for education license?
+    if (demoOnlyMode) {
+        // Pro features used, according to edu license?
+        psych_bool proFeaturesUsed = (screenSettings->screenNumber != 0) || (screenSettings->depth.depths[0] != 24 && screenSettings->depth.depths[0] != 32) ||
+                                     (vrrMode != kPsychVRROff) || (stereomode != kPsychMonoscopic) || ((*windowRecord)->windowIndex != PSYCH_FIRST_WINDOW);
+
+        // Compute timeouts and deadlines:
+        PsychComputeEducationLicenseTimeouts(proFeaturesUsed, demoProFeatureTimeout, demoVisualDegradeTimeout, demoSessionTimeout,
+                                             &demoSessionDegradeTime, &demoSessionEndTime);
+    }
+    else {
+        // No timeouts whatsoever in production mode:
+        demoSessionDegradeTime = 0;
+        demoSessionEndTime = 0;
+        demoDisableMask = 0;
+    }
+
     // Show our "splash-screen wannabe" startup message at opening of first onscreen window:
     // Also init the thread handle to our main thread here:
     if ((*windowRecord)->windowIndex == PSYCH_FIRST_WINDOW) {
         if(PsychPrefStateGet_Verbosity()>2) {
             printf("\n\nPTB-INFO: This is Psychtoolbox-3 for %s, under %s %s %s (Version %i.%i.%i - Build date: %s).\n", PSYCHTOOLBOX_OS_NAME, PSYCHTOOLBOX_SCRIPTING_LANGUAGE_NAME, PTB_ARCHITECTURE, PTB_ISA, PsychGetMajorVersionNumber(), PsychGetMinorVersionNumber(), PsychGetPointVersionNumber(), PsychGetBuildDate());
             printf("PTB-INFO: OS support status: %s\n", PsychSupportStatus());
-            printf("PTB-INFO: Type 'PsychtoolboxVersion' for more detailed version information.\n");
-            printf("PTB-INFO: Most parts of the Psychtoolbox distribution are licensed to you under terms of the MIT License, with\n");
-            printf("PTB-INFO: some restrictions. See file 'License.txt' in the Psychtoolbox root folder for the exact licensing conditions.\n\n");
-            printf("PTB-INFO: For information about paid support, support memberships and other commercial services, please type\n");
-            printf("PTB-INFO: 'PsychPaidSupportAndServices'.\n\n");
+            printf("PTB-INFO: For information about paid support and other commercial services, please type 'PsychPaidSupportAndServices'.\n");
+            printf("PTB-INFO: Most parts of the Psychtoolbox distribution are licensed to you under terms of the MIT license, with some\n");
+            printf("PTB-INFO: restrictions. See file 'License.txt' in the Psychtoolbox root folder for the exact licensing conditions.\n");
+            printf("PTB-INFO: Psychtoolbox and its prebuilt mex files are distributed in the hope that they will be useful, but WITHOUT\n");
+            printf("PTB-INFO: ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n");
         }
 
         if (PsychPrefStateGet_EmulateOldPTB() && PsychPrefStateGet_Verbosity()>1) {
@@ -513,10 +659,26 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
                 printf("\n\n\n\n");
                 printf("PTB-WARNING: Seems that a Mesa OpenGL software renderer is active! This will likely cause miserable\n");
                 printf("PTB-WARNING: performance, lack of functionality and severe timing and synchronization problems.\n");
-                printf("PTB-WARNING: Most likely you are running Psychtoolbox on a Matlab version 8.4 (R2014b) or later and\n");
-                printf("PTB-WARNING: Matlab is causing this problem by overriding your operating systems OpenGL library with\n");
-                printf("PTB-WARNING: its own outdated software library. Please run the setup script PsychLinuxConfiguration()\n");
-                printf("PTB-WARNING: now from your Matlab command window and then quit and restart Matlab to fix this problem.\n");
+                #if (PSYCH_LANGUAGE == PSYCH_MATLAB) && !defined(PTBOCTAVE3MEX)
+                    printf("PTB-WARNING: Most likely you are running Psychtoolbox on a Matlab version 8.4 (R2014b) or later and\n");
+                    printf("PTB-WARNING: Matlab is causing this problem by overriding your operating systems OpenGL library with\n");
+                    printf("PTB-WARNING: its own outdated software library. Please run the setup script PsychLinuxConfiguration()\n");
+                    printf("PTB-WARNING: now from your Matlab command window and then quit and restart Matlab to fix this problem.\n");
+                    printf("PTB-WARNING: If that doesn't fix it, and you are on Matlab R2025a or later, try launching Matlab once\n");
+                    printf("PTB-WARNING: from a terminal window as follows: matlab -nosoftwareopengl\n");
+                    printf("PTB-WARNING: \n");
+                    printf("PTB-WARNING: If that still does not fix it, especially after a Matlab or operating system update, read on.\n");
+                    printf("PTB-WARNING: \n");
+                    printf("PTB-WARNING: On a Debian or Ubuntu based Linux distribution, you should run the following\n");
+                    printf("PTB-WARNING: command from a terminal window after each upgrade of Matlab, and then exit and restart\n");
+                    printf("PTB-WARNING: Matlab, to fix compatibility problems caused by Matlab. Sometimes this may also be needed\n");
+                    printf("PTB-WARNING: after an upgrade or software update of your Linux system. Execute the following command ...\n");
+                    printf("PTB-WARNING: \n");
+                    printf("PTB-WARNING: sudo dpkg-reconfigure matlab-support\n");
+                    printf("PTB-WARNING: \n");
+                    printf("PTB-WARNING: ... and when prompted, answer all questions, if problems should be fixed by renaming library\n");
+                    printf("PTB-WARNING: files, with a YES. After that, restart Matlab and retry.\n");
+                #endif
                 printf("\n\n");
             }
         }
@@ -769,11 +931,13 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
         // Default to "No external splash screen assigned":
         memset((void*) &splash_image, 0, sizeof(splash_image));
 
-        // We load and display the splash image if the 'welcome' screen is enabled and we can
-        // find it:
-        if ((visual_debuglevel >= 4) && (strlen(PsychRuntimeGetPsychtoolboxRoot(FALSE)) > 0)) {
+        // We load and display the splash image if the 'welcome' screen is enabled and we can find it:
+        if ((demoOnlyMode || (visual_debuglevel >= 4)) && (strlen(PsychRuntimeGetPsychtoolboxRoot(FALSE)) > 0)) {
             // Yes! Assemble full path name to splash image:
-            sprintf(splashPath, "%sPsychBasic/WelcomeSplash.ppm", PsychRuntimeGetPsychtoolboxRoot(FALSE));
+            if (demoOnlyMode)
+                sprintf(splashPath, "%sPsychBasic/DemoSplash.ppm", PsychRuntimeGetPsychtoolboxRoot(FALSE));
+            else
+                sprintf(splashPath, "%sPsychBasic/WelcomeSplash.ppm", PsychRuntimeGetPsychtoolboxRoot(FALSE));
 
             // Try to open splash image file:
             splashFd = fopen(splashPath, "rb");
@@ -798,7 +962,7 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
 
                     // Header for a PPM file read, detected and valid. Image dimensions within valid size range up to 1024 x 768, 8 bpc, 24 bpp.
                     if (PsychPrefStateGet_Verbosity() > 5) {
-                        printf("PTB-DEBUG: Recognized splash image of %i x %i pixels, maxlevel %i. Loading...\n", splash_image.width, splash_image.height, splash_image.bytes_per_pixel);
+                        printf("PTB-DEBUG: Recognized splash image of %i x %i pixels, maxlevel %i. Loading...", splash_image.width, splash_image.height, splash_image.bytes_per_pixel);
                     }
 
                     // Allocate image buffer:
@@ -812,6 +976,18 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
                         if (fread(splash_image.pixel_data, splash_image.width * splash_image.height * 3, 1, splashFd) == 1) {
                             // Success! Mark loaded splash image as "valid" and set its format:
                             splash_image.bytes_per_pixel = GL_RGB;
+
+                            // Compute crc32 hash as a simple digital fingerprint:
+                            crc_hash = crc32(splash_image.pixel_data, splash_image.width * splash_image.height * 3);
+                            if (PsychPrefStateGet_Verbosity() > 5)
+                                printf(" ... Loaded with hash %u.", crc_hash);
+
+                            // Check hash of demo mode startup image:
+                            if (demoOnlyMode && crc_hash != 2999151986) {
+                                free(splash_image.pixel_data);
+                                splash_image.pixel_data = NULL;
+                                splash_image.bytes_per_pixel = 0;
+                            }
                         }
                         else {
                             // Read failed. Revert to default splash:
@@ -819,6 +995,9 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
                             splash_image.pixel_data = NULL;
                         }
                     }
+
+                    if (PsychPrefStateGet_Verbosity() > 5)
+                        printf("\n");
                 }
                 else {
                     if (PsychPrefStateGet_Verbosity() > 5) {
@@ -840,7 +1019,15 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
 
     // Need to use fallback hard-coded splash image?
     if (splash_image.bytes_per_pixel != GL_RGB) {
-        // No splash image loaded. Use our old hard-coded "Welcome" splash:
+        // No splash image loaded.
+        if (demoOnlyMode) {
+            printf("PTB-ERROR: Tampering with startup detected! Aborting.\n");
+            PsychOSCloseWindow(*windowRecord);
+            FreeWindowRecordFromPntr(*windowRecord);
+            return(FALSE);
+        }
+
+        // Use our old hard-coded "Welcome" splash:
         splash_image.width = gimp_image.width;
         splash_image.height = gimp_image.height;
         splash_image.pixel_data = (unsigned char*) &(gimp_image.pixel_data[0]);
@@ -873,6 +1060,10 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
         if (splashFd) fclose(splashFd);
         errno = 0;
     }
+
+    // No escaping the wait in a demo mode license:
+    if (demoOnlyMode)
+        splashMinDurationSecs = 10.0;
 
     // Retrieve real number of samples/pixel for multisampling:
     (*windowRecord)->multiSample = 0;
@@ -953,11 +1144,15 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
     // and trouble, so only run time-reduced synctests, and skip various warnings if they should
     // fail, as this is strictly non of our business:
     if ((*windowRecord)->specialflags & kPsychExternalDisplayMethod) {
-        if (PsychPrefStateGet_Verbosity() > 2)
-            printf("PTB-INFO: External display method is in use for this window. Running short and lenient timing tests only.\n");
-
         if (skip_synctests < 1)
             skip_synctests = 1;
+
+        // macOS on Apple Silicon proprietary AGFX gpu and display engine? Skip sync tests completely, they are pointless:
+        if ((PSYCH_SYSTEM == PSYCH_OSX) && strstr((*windowRecord)->gpuCoreId, "AGFX"))
+            skip_synctests = 2;
+
+        if ((PsychPrefStateGet_Verbosity() > 2) && (skip_synctests < 2))
+            printf("PTB-INFO: External display method is in use for this window. Running short and lenient timing tests only.\n");
     }
 
     // If this is a windowed onscreen window, be lenient with synctests. Make sure they never fail,
@@ -1589,7 +1784,8 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
     if (PsychPrefStateGet_Verbosity() > 2) {
         printf("\n\nPTB-INFO: OpenGL-Renderer is %s :: %s :: %s\n", (char*) glGetString(GL_VENDOR), (char*) glGetString(GL_RENDERER), (char*) glGetString(GL_VERSION));
         if (VRAMTotal > 0) printf("PTB-INFO: Renderer has %li MB of VRAM and a maximum %li MB of texture memory.\n", VRAMTotal, TexmemTotal);
-        printf("PTB-INFO: VBL startline = %i , VBL Endline = %i\n", (int) vbl_startline, VBL_Endline);
+        printf("PTB-INFO: Screen %i : Window %i : VBL startline = %i : VBL Endline = %i\n", (*windowRecord)->screenNumber, (*windowRecord)->windowIndex,
+               (int) vbl_startline, VBL_Endline);
 
         if (ifi_beamestimate > 0) {
             printf("PTB-INFO: Measured monitor refresh interval from beamposition = %f ms [%f Hz].\n", ifi_beamestimate * 1000, 1/ifi_beamestimate);
@@ -1646,8 +1842,13 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
                 }
             }
             else if ((*windowRecord)->specialflags & kPsychExternalDisplayMethod) {
-                printf("PTB-INFO: Beamposition queries unsupported or defective on this system. Screen('Flip') timestamping will\n");
-                printf("PTB-INFO: fully rely on mechanisms in the external display backend, with unknown precision and reliability.\n");
+                if (PSYCH_SYSTEM == PSYCH_OSX) {
+                    printf("PTB-INFO: Will try to use mechanisms in the external display backend for accurate Flip timestamping.\n");
+                }
+                else {
+                    printf("PTB-INFO: Beamposition queries unsupported or defective on this system. Screen('Flip') timestamping will\n");
+                    printf("PTB-INFO: fully rely on mechanisms in the external display backend, with unknown precision and reliability.\n");
+                }
             }
             else {
                 printf("PTB-INFO: Beamposition queries unsupported or defective on this system. Using basic timestamping as fallback.\n");
@@ -1655,11 +1856,15 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
             }
         }
 
-        printf("PTB-INFO: Measured monitor refresh interval from VBLsync = %f ms [%f Hz]. (%i valid samples taken, stddev=%f ms.)\n",
-               ifi_estimate * 1000, 1/ifi_estimate, numSamples, stddev*1000);
+        if (ifi_estimate > 0)
+            printf("PTB-INFO: Measured monitor refresh interval from VBLsync = %f ms [%f Hz]. (%i valid samples taken, stddev=%f ms.)\n",
+                   ifi_estimate * 1000, 1/ifi_estimate, numSamples, stddev*1000);
 
-        if (ifi_nominal > 0) printf("PTB-INFO: Reported monitor refresh interval from operating system = %f ms [%f Hz].\n", ifi_nominal * 1000, 1/ifi_nominal);
-        printf("PTB-INFO: Small deviations between reported values are normal and no reason to worry.\n");
+        if (ifi_nominal > 0)
+            printf("PTB-INFO: Reported monitor refresh interval from operating system = %f ms [%f Hz].\n", ifi_nominal * 1000, 1/ifi_nominal);
+
+        // printf("PTB-INFO: Small deviations between reported values are normal and no reason to worry.\n");
+
         if (PsychVRRActive(*windowRecord)) {
             printf("PTB-INFO: Enabling Variable Refresh Rate VRR mode, using method %i and timing style %i.\n", (*windowRecord)->vrrMode, (*windowRecord)->vrrStyleHint);
             printf("PTB-INFO: Assuming minimum VRR refresh duration %f msecs, maximum duration %f msecs.\n", 1000 * (*windowRecord)->vrrMinDuration, 1000 * (*windowRecord)->vrrMaxDuration);
@@ -1846,7 +2051,8 @@ psych_bool PsychOpenOnscreenWindow(PsychScreenSettingsType *screenSettings, Psyc
                 printf("\nPTB-WARNING: Unable to measure monitor refresh interval! Using a fake value of %f milliseconds.\n", ifi_estimate*1000);
             }
             else {
-                printf("PTB-INFO: All display tests and calibrations disabled. Assuming a refresh interval of %f Hz. Timing will be inaccurate!\n", 1.0/ifi_estimate);
+                printf("PTB-INFO: All startup display tests and calibrations disabled. Assuming a refresh interval of %f Hz. %s\n",
+                       1.0 / ifi_estimate, ((*windowRecord)->specialflags & kPsychExternalDisplayMethod) ? "" : "Timing will be inaccurate!");
             }
         }
     }
@@ -4026,7 +4232,7 @@ double PsychFlipWindowBuffers(PsychWindowRecordType *windowRecord, int multiflip
         // it means that we missed the proper video refresh cycle:
         tshouldflip = flipwhen;
 
-        if (!(windowRecord->specialflags & kPsychSkipSwapForFlipOnce)) {
+        if (!(windowRecord->specialflags & kPsychSkipSwapForFlipOnce) && !osspecific_asyncflip_scheduled) {
             // Adjust target time for potential OS-specific compositor delay:
             flipwhen = PsychOSAdjustForCompositorDelay(windowRecord, flipwhen, FALSE);
         }
@@ -4124,6 +4330,14 @@ double PsychFlipWindowBuffers(PsychWindowRecordType *windowRecord, int multiflip
 
     // Take preswap timestamp:
     PsychGetAdjustedPrecisionTimerSeconds(&time_at_swaprequest);
+
+    #if PSYCH_SYSTEM == PSYCH_LINUX
+    // Request swap completion event for next present from Linux Wayland backend when using it with the external Vulkan display backend
+    // and this is requested by the backend, or by 'GetFlipInfo':
+    if ((windowRecord->specialflags & kPsychSkipSwapForFlipOnce) && (windowRecord->specialflags & kPsychExternalDisplayMethod) &&
+        (windowRecord->swapevents_enabled != 0) && (windowRecord->winsysType == WAFFLE_PLATFORM_WAYLAND))
+        PsychOSSwapCompletionLogging(windowRecord, 5, 0);
+    #endif
 
     // Execute the hookchain for non-OpenGL operations that need to happen immediately before the bufferswap, e.g.,
     // sending out control signals or commands to external hardware to somehow sync it up to imminent bufferswaps:
@@ -5604,6 +5818,9 @@ void PsychPreFlipOperations(PsychWindowRecordType *windowRecord, int clearmode)
 
     // Enable this windowRecords framebuffer as current drawingtarget:
     PsychSetDrawingTarget(windowRecord);
+
+    if (demoOnlyMode)
+        PsychDrawDemoSplash(windowRecord);
 
     // Execute hook chain for ops post-user space drawing (e.g., drawing an overlay over user content):
     PsychPipelineExecuteHook(windowRecord, kPsychUserspaceBufferDrawingFinished, NULL, NULL, FALSE, FALSE, NULL, NULL, NULL, NULL);
@@ -7100,6 +7317,7 @@ void PsychDetectAndAssignGfxCapabilities(PsychWindowRecordType *windowRecord)
     psych_bool intel = FALSE;
     psych_bool llvmpipe = FALSE;
     psych_bool vc4 = FALSE;
+    psych_bool apple = FALSE;
     GLint maxtexsize=0, maxcolattachments=0, maxaluinst=0;
     GLboolean nativeStereo = FALSE;
     int mesaversion[3];
@@ -7164,6 +7382,10 @@ void PsychDetectAndAssignGfxCapabilities(PsychWindowRecordType *windowRecord)
 
     if (strstr((char*) glGetString(GL_VENDOR), "Broadcom") || strstr((char*) glGetString(GL_RENDERER), "VC4")) {
         vc4 = TRUE; sprintf(windowRecord->gpuCoreId, "VC4");
+    }
+
+    if (strstr((char*) glGetString(GL_VENDOR), "Apple") || strstr((char*) glGetString(GL_RENDERER), "Apple") || strstr((const char*) glGetString(GL_VERSION), "Metal")) {
+        apple = TRUE; sprintf(windowRecord->gpuCoreId, "AGFX");
     }
 
     // Is this a hybrid graphics dual-gpu laptop which uses DRI PRIME for muxless render offload?
@@ -7645,7 +7867,7 @@ void PsychDetectAndAssignGfxCapabilities(PsychWindowRecordType *windowRecord)
         }
 
         // FBO + float textures support on Intel gfx, Broadcom VideoCore 5/6, software renderers?
-        if ((vc4 || intel || llvmpipe) && (windowRecord->gfxcaps & kPsychGfxCapFBO) && glewIsSupported("GL_ARB_texture_float")) {
+        if ((vc4 || intel || llvmpipe || apple) && (windowRecord->gfxcaps & kPsychGfxCapFBO) && glewIsSupported("GL_ARB_texture_float")) {
             // Intel GPUs with FBO and ARB_texture_float support: These are usually of the HD graphics series and
             // recent enough to support floating point textures and rendertargets with 16 bpc and 32 bpc float, including
             // texture filtering and frame buffer blending, and as a bonus FP32 shading. Iow. they support the whole
@@ -7665,14 +7887,16 @@ void PsychDetectAndAssignGfxCapabilities(PsychWindowRecordType *windowRecord)
             // and avoid 32 bpc framebuffers for blending, or avoid blending on 32 bpc framebuffers:
             if (verbose && vc4) printf("Assuming VideoCore-6: Renderer supports full 16/32 bit floating point textures and frame buffers, but only 16 bit float filtering and blending, as well as some 32 bit float shading.\n");
 
+            if (verbose && apple) printf("Assuming Apple Silicon AGFX gpu: Hardware supports full 16/32 bit floating point textures, frame buffers, filtering and blending, as well as some 32 bit float shading.\n");
+
             windowRecord->gfxcaps |= kPsychGfxCapFP32Shading;
             windowRecord->gfxcaps |= kPsychGfxCapFPFBO16;
             windowRecord->gfxcaps |= kPsychGfxCapFPFBO32;
             windowRecord->gfxcaps |= kPsychGfxCapFPFilter16;
             windowRecord->gfxcaps |= kPsychGfxCapFPBlend16;
 
-            if (intel || llvmpipe) {
-                // 32 bpc float filtering and blending only on Intel and software, not on v3d / VideoCore-6:
+            if (intel || llvmpipe || apple) {
+                // 32 bpc float filtering and blending only on Intel, Apple, and software, not on v3d / VideoCore-6:
                 windowRecord->gfxcaps |= kPsychGfxCapFPFilter32;
                 windowRecord->gfxcaps |= kPsychGfxCapFPBlend32;
             }

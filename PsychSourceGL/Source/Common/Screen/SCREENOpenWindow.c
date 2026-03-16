@@ -147,6 +147,7 @@ static char seeAlsoString[] = "OpenOffscreenWindow, SelectStereoDrawBuffer, Pane
 
 PsychError SCREENOpenWindow(void)
 {
+    const int               maxOutputArgs = 2;
     int                     screenNumber, numWindowBuffers, stereomode, multiSample, imagingmode;
     psych_int64             specialflags;
     PsychRectType           rect, screenrect, clientRect, fbOverrideRect;
@@ -172,7 +173,7 @@ PsychError SCREENOpenWindow(void)
 
     //cap the number of inputs
     PsychErrorExit(PsychCapNumInputArgs(12));  // The maximum number of inputs
-    PsychErrorExit(PsychCapNumOutputArgs(2));  // The maximum number of outputs
+    PsychErrorExit(PsychCapNumOutputArgs(maxOutputArgs));  // The maximum number of outputs
 
     //get the screen number from the windowPtrOrScreenNumber.  This also checks to make sure that the specified screen exists.
     PsychCopyInScreenNumberArg(kPsychUseDefaultArgPosition, TRUE, &screenNumber);
@@ -317,7 +318,8 @@ PsychError SCREENOpenWindow(void)
     specialflags = 0;
     PsychCopyInIntegerArg64(9,FALSE, &specialflags);
     if (specialflags < 0 || (specialflags > 0 &&
-        !(specialflags & (kPsychGUIWindow | kPsychGUIWindowWMPositioned | kPsychExternalDisplayMethod | kPsychDontUseFlipperThread | kPsychSkipSecondaryVsyncForFlip))))
+        !(specialflags & (kPsychGUIWindow | kPsychGUIWindowWMPositioned | kPsychBackendDecisionMade | kPsychExternalDisplayMethod | kPsychDontUseFlipperThread |
+          kPsychSkipSecondaryVsyncForFlip))))
         PsychErrorExitMsg(PsychError_user, "Invalid 'specialflags' provided.");
 
     // Check if this is macOS on a Apple Silicon ARM M1+ SoC with Apple proprietary gpu:
@@ -326,30 +328,59 @@ PsychError SCREENOpenWindow(void)
         psych_bool isARM;
 
         PsychGetOSXMinorVersion(&isARM);
-        if (isARM && !(specialflags & kPsychExternalDisplayMethod) && !dontCaptureScreen) {
+        if (isARM && !(specialflags & kPsychExternalDisplayMethod) && !(specialflags & kPsychBackendDecisionMade) && !dontCaptureScreen) {
             // M1 SoC or later, Apple proprietary gpu with OpenGL emulated on top of Metal + CoreAnimation.
             // This does not work at all with OpenGL CGL low-level fullscreen display mode, only through
             // Cocoa+NSOpenGL+NSWindow on top of CoreAnimation. Not using Cocoa will simply error abort with
-            // a "CGLSetFullScreenOnDisplay failed: invalid fullscreen drawable" error. So we switch to Cocoa
-            // voluntarily. Ofc. with this, OpenGL display timing/timestamping is utterly broken, but it may
-            // allow users to limp along on their new shiny expensive M1 iToy. We take specialflags setting
-            // kPsychExternalDisplayMethod as a sign that the user requested Vulkan backend display or similar
-            // to try to workaround this issue, so we spare them extra warnings and actions, etc.:
+            // a "CGLSetFullScreenOnDisplay failed: invalid fullscreen drawable" error. So we have to switch
+            // to Cocoa voluntarily. Proper visual stimulus presentation timing and timestamping also requires
+            // use of our Vulkan display backend, which itself requires complex setup by PsychImaging.m and
+            // PsychVulkan.m. If Screen('Openwindow', ...) is called directly, instead of high-level wrapped
+            // via PsychImaging('OpenWindow', ...), this crucial setup can't happen. Therefore we detect this
+            // direct call by the absence of the specialflags flag kPsychBackendDecisionMade, and call
+            // PsychImaging('OpenWindow', ...) on behalf of the users script, essentially rewriting the call to
+            // Screen('OpenWindow', ...) into an equivalent PsychImaging('OpenWindow', ...), so PsychImaging
+            // can make the Vulkan vs. OpenGL decision and possibly perform needed Vulkan setup, then recursively
+            // call back into us. This allows legacy user scripts which don't use PsychImaging to continue to work
+            // unmodified on macOS for Apple Silicon Macs.
+            if (PsychPrefStateGet_Verbosity() > 3)
+                printf("PTB-INFO: Running on a macOS Apple Silicon system: Checking if Vulkan display backend should be used with this legacy script.\n");
 
-            // Need to take action. Request Quartz composition / Cocoa / NSOpenGL backend:
-            PsychPrefStateSet_ConserveVRAM(PsychPrefStateGet_ConserveVRAM() | kPsychUseAGLCompositorForFullscreenWindows);
+            // Array with PsychImaging return arguments [win, winRect]:
+            PsychGenericScriptType *outputs[maxOutputArgs];
 
-            if (PsychPrefStateGet_Verbosity() > 1) {
-                printf("PTB-WARNING: This is a Apple silicon based ARM M1 SoC or later with Apple proprietary gpu.\n");
-                printf("PTB-WARNING: All of Psychtoolbox own timing and timestamping mechanisms will not work on\n");
-                printf("PTB-WARNING: such a machine, leading to disastrously bad visual stimulus presentation timing\n");
-                printf("PTB-WARNING: and timestamping. Do not trust or use this machine if timing is of any concern!\n");
-                printf("PTB-WARNING: You may want to try enabling Psychtoolbox Vulkan display backend, after proper\n");
-                printf("PTB-WARNING: configuration. See 'help PsychImaging' the section about the 'UseVulkanDisplay'\n");
-                printf("PTB-WARNING: task, and 'help PsychHDR' for some more setup instructions for MoltenVK on macOS.\n");
-                printf("PTB-WARNING: Note that this approach is completely unsupported by us in case of any problems, and\n");
-                printf("PTB-WARNING: may just be as bad performance and timing-wise. It is completely untested on M1.\n");
+            // Prepare/Assing PsychImaging('OpenWindow', ...); call arguments:
+            int nrInputs = PsychGetNumInputArgs() + 1;
+            PsychGenericScriptType *inputs[nrInputs];
+            for (int i = 0; i < nrInputs; i++) {
+                inputs[i] = (PsychGenericScriptType*) PsychGetInArgPtr(i);
             }
+
+            // Call [win, winRect] = PsychImaging('OpenWindow', ...); and error out on error:
+            // PsychImaging('OpenWindow', ...); itself will decide on a display backend, OpenGL or Vulkan,
+            // set things up in case of Vulkan, and then recursively call us, ie. Screen('OpenWindow', ...);
+            // with potentially tweaked parameters and the specialflags setting kPsychBackendDecisionMade
+            // again, so this code branch gets skipped and the regular Screen('OpenWindow', ...) will run.
+            // Its return arguments will be post-processed by PsychImaging and then PsychImaging returns
+            // final [win, winRect] = PsychImaging('OpenWindow', ...); [win, winRect] arguments to us
+            // when returning from this call, and we will return those return args to our caller.
+            if (Psych_mexCallMATLAB(maxOutputArgs, outputs, nrInputs, inputs, "PsychImaging"))
+                PsychErrorExitMsg(PsychError_user, "Error in PsychImaging('OpenWindow', ...) redirected call on Apple Silicon system!");
+
+            // Worked! Return the window index and the rect argument from [win, winRect] = PsychImaging('OpenWindow', ...):
+            for (int i = 0; i < PsychGetNumOutputArgs(); i++) {
+                if (PsychIsArgPresent(PsychArgOut, i + 1)) {
+                    *PsychGetOutArgMxPtr(i + 1) = outputs[i];
+                }
+            }
+
+            // Back to caller of [win, winRect] = Screen('OpenWindow', ...);
+            return(PsychError_none);
+        }
+
+        // On macOS with Vulkan display backend or other external display backend, do not capture the screen:
+        if (specialflags & kPsychExternalDisplayMethod) {
+            dontCaptureScreen = TRUE;
         }
     }
     #endif
@@ -471,26 +502,42 @@ PsychError SCREENOpenWindow(void)
         if ((nativewidth > frontendwidth) || (nativeheight > frontendheight)) {
             // Yes: Native backend resolution in pixels is higher than exposed
             // frontend resolution in points. --> HiDPI / Retina display in use.
-            if (PsychPrefStateGet_Verbosity() > 2)
-                printf("PTB-INFO: Retina display. Enabling panel fitter for scaled Retina compatibility mode.\n");
-
-            if (!EmulateOldPTB) {
-                // Enable panel fitter by setting a clientRect the size and resolution
-                // of the 'rect' - user supplied or frontend resolution.
-                // NOTE: This is preliminary! The setup code below will override
-                // such an auto-generated clientRect with the fbOverrideRect, as
-                // provided by the usercode, or computed from 'rect':
-                PsychNormalizeRect(rect, clientRect);
-
-                // Enable imaging pipeline and panelfitter:
-                imagingmode |= kPsychNeedFastBackingStore;
-                imagingmode |= kPsychNeedGPUPanelFitter;
+            if (PsychPrefStateGet_Verbosity() > 2) {
+                #ifdef PTB_USE_WAYLAND
+                printf("PTB-INFO: Retina display on screen %i. Using Retina compatibility mode. Use PsychImaging('AddTask','General','UseRetinaResolution') for full resolution.\n",
+                        screenNumber);
+                #else
+                printf("PTB-INFO: Retina display on screen %i. Using panel fitter for Retina compatibility mode. Use PsychImaging('AddTask','General','UseRetinaResolution') for full resolution.\n",
+                        screenNumber);
+                #endif
             }
-            else {
-                printf("PTB-WARNING: Sorry, Retina displays are not supported in OS-9 PTB emulation mode. Results will likely be wrong.\n");
-            }
+
+            // Don't use panel fitter for Retina scaling under Wayland, as we have more efficient
+            // Wayland specific ways to do that implemented in the Linux Wayland glue:'
+            #ifndef PTB_USE_WAYLAND
+                if (!EmulateOldPTB) {
+                    // Enable panel fitter by setting a clientRect the size and resolution
+                    // of the 'rect' - user supplied or frontend resolution.
+                    // NOTE: This is preliminary! The setup code below will override
+                    // such an auto-generated clientRect with the fbOverrideRect, as
+                    // provided by the usercode, or computed from 'rect':
+                    PsychNormalizeRect(rect, clientRect);
+
+                    // Enable imaging pipeline and panelfitter:
+                    imagingmode |= kPsychNeedFastBackingStore;
+                    imagingmode |= kPsychNeedGPUPanelFitter;
+                }
+                else {
+                    printf("PTB-WARNING: Sorry, Retina displays are not supported in Psychtoolbox-2 emulation mode. Results will likely be wrong.\n");
+                }
+            #endif
         }
     }
+
+    // Transfer kPsychNeedRetinaResolution to specialflags for use by WSI backends, e.g., Wayland, to request WSI
+    // setup for full native Retina resolution:
+    if (imagingmode & kPsychNeedRetinaResolution)
+        specialflags |= kPsychNeedRetinaResolution;
 
     // Filter out "used up" flags, they must not pass into PsychOpenOnscreenWindow() or PsychInitializeImagingPipeline(),
     // or they might screw up MSAA or fast offscreen window support:
@@ -577,7 +624,7 @@ PsychError SCREENOpenWindow(void)
     didWindowOpen=PsychOpenOnscreenWindow(&screenSettings, &windowRecord, numWindowBuffers, stereomode, rect, ((imagingmode==0 || imagingmode==kPsychNeedFastOffscreenWindows) ? multiSample : 0),
                                           sharedContextWindow, specialflags, vrrMode, vrrStyleHint, vrrMinDuration, vrrMaxDuration);
     if (!didWindowOpen) {
-        if (!dontCaptureScreen) {
+        if (PsychIsScreenCaptured(screenNumber)) {
             PsychRestoreScreenSettings(screenNumber);
             PsychReleaseScreen(screenNumber);
         }
@@ -980,19 +1027,20 @@ PsychError SCREENOpenWindow(void)
             // Cocoa:
             double isf = PsychCocoaGetBackingStoreScaleFactor(windowRecord->targetSpecific.windowHandle);
 
-            if (PsychPrefStateGet_Verbosity() > 3)
-                printf("PTB-INFO: Cocoa + Retina scaling. Scaling factor is %fx.\n", isf);
-
             if (windowRecord->imagingMode & kPsychNeedGPUPanelFitter) {
                 // Cocoa + Panelfitter enabled:
                 windowRecord->internalMouseMultFactor = 1.0;
-                windowRecord->externalMouseMultFactor = isf;
+                windowRecord->externalMouseMultFactor = (isf != 1) ? isf / 2 : -1.0;
             }
             else {
                 // Cocoa with Panelfitter off:
                 windowRecord->internalMouseMultFactor = isf;
-                windowRecord->externalMouseMultFactor = 1.0;
+                windowRecord->externalMouseMultFactor = (isf != 1) ? 1.0 / 2 : -1.0;
             }
+
+            if (PsychPrefStateGet_Verbosity() > 3)
+                printf("PTB-INFO: Cocoa + Retina scaling. Window scaling factor is %fx. Mouse scaling is internal %fx and external %fx\n",
+                       isf, windowRecord->internalMouseMultFactor, windowRecord->externalMouseMultFactor);
 
             // Graphics api interop setup under Cocoa, e.g., for Vulkan MoltenVK interop.
             // This is the point where we transition from OpenGL rendering and display to
@@ -1005,20 +1053,41 @@ PsychError SCREENOpenWindow(void)
             // CGL:
             if (windowRecord->imagingMode & kPsychNeedGPUPanelFitter) {
                 // CGL with Panelfitter enabled:
-                double autoscale = (double) nativewidth / (double) frontendwidth;
+                double autoscale;
+
+                // Query new nativewidth after opening onscreen window and possible video mode switching,
+                // so we operate with accurate values:
+                PsychGetScreenPixelSize(screenNumber, &nativewidth, &nativeheight);
+                autoscale = (double) nativewidth / (double) frontendwidth;
 
                 if (PsychPrefStateGet_Verbosity() > 3)
-                    printf("PTB-INFO: CGL + Retina scaling. Auto scale factor is %fx.\n", autoscale);
+                    printf("PTB-INFO: CGL + Retina scaling. [%i x %i] => [%i x %i] => Auto scale factor is %fx.\n",
+                           frontendwidth, frontendheight, nativewidth, nativeheight, autoscale);
 
                 windowRecord->internalMouseMultFactor = 1 / autoscale;
-                windowRecord->externalMouseMultFactor = autoscale;
+                windowRecord->externalMouseMultFactor = -autoscale;
             }
             else {
                 // CGL with Panelfitter off:
                 windowRecord->internalMouseMultFactor = 1.0;
-                windowRecord->externalMouseMultFactor = 1.0;
+                windowRecord->externalMouseMultFactor = -1.0;
             }
         }
+    #endif
+
+    #ifdef PTB_USE_WAYLAND
+    // Handle Wayland specific mouse / touch position coordinate rescaling from wl_surface local coordinates
+    // to wl_buffer aka onscreen window OpenGL backbuffer coordinates when using native Retina resolution, ie.
+    // framebuffer is higher resolution / size than wl_surface aka window logical size:
+    if (windowRecord->specialflags & kPsychNeedRetinaResolution) {
+        double autoscale = (double) nativewidth / (double) frontendwidth;
+
+        if (PsychPrefStateGet_Verbosity() > 3)
+            printf("PTB-INFO: Wayland + Native Retina display mode. Auto scale factor is %f.\n", autoscale);
+
+        // Not used yet on Wayland: windowRecord->internalMouseMultFactor = 1 / autoscale;
+        windowRecord->externalMouseMultFactor = autoscale;
+    }
     #endif
 
     //Return the window index and the rect argument.

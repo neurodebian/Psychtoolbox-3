@@ -1,8 +1,9 @@
 % GStreamer - Installation instructions for the GStreamer media framework.
 %
 % Psychtoolbox uses the GStreamer multi-media framework for all multi-media
-% related operations. Always on MS-Windows, and on macOS when using Matlab,
-% GStreamer is also needed for high quality text rendering via Screen('DrawText').
+% related operations. On MS-Windows, and on macOS when using Matlab,
+% GStreamer is also needed for high quality text rendering via
+% Screen('DrawText').
 %
 % All movie playback, movie creation, video capture and video recording
 % operations are based on GStreamer. These functions won't work without a
@@ -12,17 +13,10 @@
 % libdc1394, see 'help VideoCaptureDC1394', and GStreamer is only needed
 % for video recording, not for live capture).
 %
-% You will need at least version 1.8 of GStreamer on Linux, and at least
-% version 1.22.0 on MS-Windows and at least version 1.18.5 on macOS, but
+% You will need at least version 1.20.0 of GStreamer on Linux, and at least
+% version 1.22.0 on MS-Windows and at least version 1.20.0 on macOS, but
 % we recommend to use the latest stable release of the version 1 series
 % tested by us (see links below).
-%
-% For limited HDR playback support on Linux, you will need at least GStreamer
-% version 1.16 + some special modifications to your playback scripts, e.g., as
-% contained in Ubuntu 20.04-LTS. For full HDR playback support on Linux, you will
-% need at least version 1.18, e.g., as contained in Ubuntu 22.04-LTS. HDR playback
-% is not yet supported on macOS due to macOS operating system deficiencies - an
-% insufficiently advanced Apple OpenGL implementation.
 %
 % Installation instructions:
 %
@@ -46,10 +40,7 @@
 %
 % An easy test is to run SimpleMovieDemo. If it fails or only plays sound,
 % but not video, then some of the plugins are missing, e.g., the important
-% "gst-libav" plugins. For minimal HDR playback support, Ubuntu 20.04 LTS
-% would suffice. For full HDR playback support, you need Ubuntu 22.04 LTS,
-% or some 3rd party provided GStreamer 1.18+ packages, or packages built
-% from source.
+% "gst-libav" plugins.
 %
 %
 % MS-Windows and Apple macOS:
@@ -87,23 +78,32 @@
 % <http://gstreamer.freedesktop.org/download/>
 %
 % The following GStreamer runtime packages have been lightly tested for compatibility
-% with Psychtoolbox 3.0.19.4, as of September 2023:
+% with Psychtoolbox 3.0.22.1, as of July 2025:
 %
-% For MS-Windows: 64-Bit Intel MSVC runtime v1.22.5 for use with 64-Bit Matlab/Octave.
+% For MS-Windows: 64-Bit Intel MSVC runtime v1.22.12 for use with 64-Bit Matlab/Octave.
 %
-% <https://gstreamer.freedesktop.org/data/pkg/windows/1.22.5/msvc/gstreamer-1.0-msvc-x86_64-1.22.5.msi>
+% <https://gstreamer.freedesktop.org/data/pkg/windows/1.22.12/msvc/gstreamer-1.0-msvc-x86_64-1.22.12.msi>
 %
 % You *must* install the MSVC variants of GStreamer, not the MinGW64 variants!
 %
 %
-% For Apple macOS: Oldest runtime v1.18.5:
+% For Apple macOS: Oldest runtime for Intel Macs v1.18.6:
 %
-% <https://gstreamer.freedesktop.org/data/pkg/osx/1.18.5/gstreamer-1.0-1.18.5-x86_64.pkg>
+% <https://gstreamer.freedesktop.org/data/pkg/osx/1.18.6/gstreamer-1.0-1.18.6-x86_64.pkg>
 %
-% also tested, probably higher performance and more modern, but known to crash with
-% VideoRecordingDemo.m at least with the MacBookPro 2017 builtin camera, is v1.22.1.
+% Recommended and tested for both Intel and Apple Silicon as of May 2025 is version 1.24.10:
 %
-% <https://gstreamer.freedesktop.org/data/pkg/osx/1.22.1/gstreamer-1.0-1.22.1-universal.pkg>
+% <https://gstreamer.freedesktop.org/data/pkg/osx/1.24.10/gstreamer-1.0-1.24.10-universal.pkg>
+%
+% However, the following limitations were observed on v1.24.10:
+% On Apple Silicon video recording only works without sound, otherwise
+% hangs will occur. On Intel Macs, video recording does not work at all.
+%
+% With GStreamer 1.22.0 on Intel Macs, video and audio recording works
+% fine, but playback of some movies fails. Untested on Apple Silicon.
+%
+% These limitations are likely due to some bugs or shortcomings in
+% GStreamer for macOS.
 %
 % When the installer asks you to select the components it should install,
 % select a "Full installation" or "Complete installation", or if those

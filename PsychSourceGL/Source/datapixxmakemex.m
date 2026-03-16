@@ -198,11 +198,11 @@ function datapixxmakemex()
             system(strrep([DELCMD VPIXXDIR 'VPixx_Software_Tools/libusb/*.o'], '/', filesep));
             system(strrep([DELCMD PTBDIR 'PsychSourceGL/Source/OSX/Base/*.o'], '/', filesep));
             if IsARM
-                system(strrep([CPYCMD VPIXXDIR 'VPixx_Software_Tools/DatapixxToolbox_trunk/mexdev/build/octave/macosx/Datapixx.mex ' PTBDIR 'Psychtoolbox/PsychBasic/Octave8OSXFilesARM64'], '/', filesep));
-                osxsetoctaverpath('Datapixx', [PTBDIR 'Psychtoolbox/PsychBasic/Octave8OSXFilesARM64/']);
+                system(strrep([CPYCMD VPIXXDIR 'VPixx_Software_Tools/DatapixxToolbox_trunk/mexdev/build/octave/macosx/Datapixx.mex ' PTBDIR 'Psychtoolbox/PsychBasic/Octave10OSXFilesARM64'], '/', filesep));
+                osxsetoctaverpath('Datapixx', [PTBDIR 'Psychtoolbox/PsychBasic/Octave10OSXFilesARM64/']);
             else
-                system(strrep([CPYCMD VPIXXDIR 'VPixx_Software_Tools/DatapixxToolbox_trunk/mexdev/build/octave/macosx/Datapixx.mex ' PTBDIR 'Psychtoolbox/PsychBasic/Octave8OSXFiles64'], '/', filesep));
-                osxsetoctaverpath('Datapixx', [PTBDIR 'Psychtoolbox/PsychBasic/Octave8OSXFiles64/']);
+                system(strrep([CPYCMD VPIXXDIR 'VPixx_Software_Tools/DatapixxToolbox_trunk/mexdev/build/octave/macosx/Datapixx.mex ' PTBDIR 'Psychtoolbox/PsychBasic/Octave10OSXFiles64'], '/', filesep));
+                osxsetoctaverpath('Datapixx', [PTBDIR 'Psychtoolbox/PsychBasic/Octave10OSXFiles64/']);
             end
         elseif IsLinux
             system(strrep([DELCMD VPIXXDIR 'VPixx_Software_Tools/libusb/*.o'], '/', filesep));
@@ -236,10 +236,7 @@ function datapixxmakemex()
         elseif (IsLinux)        % 32-bit MATLAB on Linux
             system(strrep([CPYCMD VPIXXDIR 'VPixx_Software_Tools/DatapixxToolbox_trunk/mexdev/build/matlab/linux/Datapixx.' mexext ' ' PTBDIR 'Psychtoolbox/PsychBasic'], '/', filesep));
         elseif (IsWin(1))       % 64-bit MATLAB on Windows
-            system(strrep([CPYCMD VPIXXDIR 'VPixx_Software_Tools/DatapixxToolbox_trunk/mexdev/build/matlab/win64/Datapixx.mexw64 ' PTBDIR 'Psychtoolbox/PsychBasic/MatlabWindowsFilesR2007a'], '/', filesep));
-        elseif (IsWin)          % 32-bit MATLAB on Windows
-            system(strrep([CPYCMD VPIXXDIR 'VPixx_Software_Tools/DatapixxToolbox_trunk/mexdev/build/matlab/win32/Datapixx.mexw32 ' PTBDIR 'Psychtoolbox/PsychBasic/MatlabWindowsFilesR2007a'], '/', filesep));
-            system(strrep([CPYCMD VPIXXDIR 'svn_Software/DatapixxToolbox_trunk/mexdev/build/matlab/win32/Datapixx.mexw32 ' VPIXXDIR 'git_Psychtoolbox-3/Psychtoolbox/PsychBasic/MatlabWindowsFilesR2007a'], '/', filesep));
+            system(strrep([CPYCMD VPIXXDIR 'VPixx_Software_Tools/DatapixxToolbox_trunk/mexdev/build/matlab/win64/Datapixx.mexw64 ' PTBDIR 'Psychtoolbox/PsychBasic'], '/', filesep));
         end
     end
 

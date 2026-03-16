@@ -334,8 +334,7 @@ function varargout = PsychVRHMD(cmd, varargin)
 % about hand tracking capabilities as a bitmask in info.articulatedHandTrackingSupported:
 % A value of +1 means that basic OpenXR hand tracking of finger and hand joint poses,
 % typically for both hands of a user, is supported. A value of zero means lack of
-% any support. NOTE: Current Psychtoolbox releases do not yet support hand tracking,
-% this help text is preparation for future use and subject to incompatible changes!
+% any support.
 %
 % If hand tracking is requested via the keyword, and supported, then the user
 % script can request return of hand tracking sample data by calling the
@@ -433,13 +432,13 @@ function varargout = PsychVRHMD(cmd, varargin)
 %                        +1024 means that HTC's proprietary SRAnipal eyetracking is available for
 %                        more extensive gaze data reporting.
 %
-% articulatedHandTrackingSupported = Info about hand tracking capabilities. A
-% value of +1 means that basic articulated hand tracking is supported, usually
-% for both hands. Zero means no support for articulated hand tracking. The hand
-% tracking methods could be based on cameras and computer-vision markerless optical
-% tracking, or on marker based tracking, or it could be, e.g., with some sensor
-% glove input device, or with any other suitable future modality supported by your
-% OpenXR runtime.
+% articulatedHandTrackingSupported = Info about hand tracking capabilities. A value of +1 means that
+%                                    basic articulated hand tracking is supported, usually for both
+%                                    hands. Zero means no support for articulated hand tracking. The
+%                                    hand tracking methods could be based on cameras and computer vision
+%                                    markerless optical tracking, or on marker based tracking, or it
+%                                    could be, e.g., with some sensor glove input device, or with any
+%                                    other suitable future modality supported by your OpenXR runtime.
 %
 %
 % The info struct may contain much more vendor specific information, but the above
@@ -821,8 +820,6 @@ function varargout = PsychVRHMD(cmd, varargin)
 % +8 = Request return of articulated hand tracking information on suitable OpenXR
 %      systems.
 %
-%      NOTE: This feature is NOT YET IMPLEMENTED in current Psychtoolbox releases!
-%
 %      Returned information may represent the latest available measured hand and
 %      finger configuration data, or it may be predicted configuration information
 %      for the specified 'targetTime', computed via interpolation or extrapolation
@@ -832,7 +829,62 @@ function varargout = PsychVRHMD(cmd, varargin)
 %      The following fields are mandatory as part of the returned state struct,
 %      if hand tracking is supported and enabled and requested:
 %
-%      TODO, IMPLEMENTATION OF FEATURE NOT YET FINISHED.
+%      'hand' denotes the id of the tracked hand: 1 for the left hand, 2
+%      for the right hand. 'joint' is the joint id of a specific finger or
+%      hand joint. See the list of 26 defined joints below, with symbolic
+%      names or numeric indices.
+%
+%      state.trackedHandStatus(hand) = Is the given 'hand' tracked, ie. its pose
+%                                      and possible joint configurations are
+%                                      at least partially known? 0 = No, 1 = Yes.
+%
+%      state.trackedJoints(hand, joint) = Is the given 'joint' tracked? 0 = No, 1 = Yes.
+%
+%      state.trackedJointsRadius(hand, joint) = What is the estimated radius of the given 'joint' in meters?
+%
+%      state.trackedJointsPosition(hand, 1:3, joint) = A 3 row matrix with the x, y, and z positions of the 'joint'.
+%
+%      state.trackedJointsOrientationQuat(hand, 1:4, joint) = A 4 component orientation quaternion for the 'joint'.
+%
+%      state.localJointPoseMatrix{hand} = A 3D array of OpenGL style 4x4 pose matrices describing joint position
+%                                         and orientation. Format is (:,:,joint) where 'joint' selects a 4x4 matrix
+%                                         slice for joint 'joint' on hand 'hand'.
+%
+%      state.globalJointPoseMatrix{hand} = A 3D array identical in format to localJointPoseMatrix, but transformed
+%                                          via the user supplied global 'userTransformMatrix' transformation matrix to
+%                                          the PsychVRHMD('PrepareRender', ...) subfunction.
+%
+%      The following constants allow to index the returned set of 26 hand joints
+%      by symbolic names for the different parts of the fingers and hand, or you
+%      can use the numbers behind each symbolic name:
+%
+%        OVR.XR_HAND_JOINT_PALM = 0 + 1;
+%        OVR.XR_HAND_JOINT_WRIST = 1 + 1;
+%        OVR.XR_HAND_JOINT_THUMB_METACARPAL = 2 + 1;
+%        OVR.XR_HAND_JOINT_THUMB_PROXIMAL = 3 + 1;
+%        OVR.XR_HAND_JOINT_THUMB_DISTAL = 4 + 1;
+%        OVR.XR_HAND_JOINT_THUMB_TIP = 5 + 1;
+%        OVR.XR_HAND_JOINT_INDEX_METACARPAL = 6 + 1;
+%        OVR.XR_HAND_JOINT_INDEX_PROXIMAL = 7 + 1;
+%        OVR.XR_HAND_JOINT_INDEX_INTERMEDIATE = 8 + 1;
+%        OVR.XR_HAND_JOINT_INDEX_DISTAL = 9 + 1;
+%        OVR.XR_HAND_JOINT_INDEX_TIP = 10 + 1;
+%        OVR.XR_HAND_JOINT_MIDDLE_METACARPAL = 11 + 1;
+%        OVR.XR_HAND_JOINT_MIDDLE_PROXIMAL = 12 + 1;
+%        OVR.XR_HAND_JOINT_MIDDLE_INTERMEDIATE = 13 + 1;
+%        OVR.XR_HAND_JOINT_MIDDLE_DISTAL = 14 + 1;
+%        OVR.XR_HAND_JOINT_MIDDLE_TIP = 15 + 1;
+%        OVR.XR_HAND_JOINT_RING_METACARPAL = 16 + 1;
+%        OVR.XR_HAND_JOINT_RING_PROXIMAL = 17 + 1;
+%        OVR.XR_HAND_JOINT_RING_INTERMEDIATE = 18 + 1;
+%        OVR.XR_HAND_JOINT_RING_DISTAL = 19 + 1;
+%        OVR.XR_HAND_JOINT_RING_TIP = 20 + 1;
+%        OVR.XR_HAND_JOINT_LITTLE_METACARPAL = 21 + 1;
+%        OVR.XR_HAND_JOINT_LITTLE_PROXIMAL = 22 + 1;
+%        OVR.XR_HAND_JOINT_LITTLE_INTERMEDIATE = 23 + 1;
+%        OVR.XR_HAND_JOINT_LITTLE_DISTAL = 24 + 1;
+%        OVR.XR_HAND_JOINT_LITTLE_TIP = 25 + 1;
+%
 %
 %
 % More flags to follow...
@@ -1214,7 +1266,7 @@ if strcmpi(cmd, 'AutoSetupHMD')
       % intend to do so, but at least there is the theoretical option...
       %
       % This will also inject a proper PsychImaging task for setup of the imaging pipeline:
-      try
+      try %#ok<UNRCH>
         hmd = PsychOpenHMDVR('AutoSetupHMD', basicTask, basicRequirements, basicQuality, deviceIndex);
 
         % Return the handle:
