@@ -1,6 +1,7 @@
-psychtoolbox-3 (3.0.19.15.dfsg1-1) unstable; urgency=medium
+psychtoolbox-3 (3.0.19.15.dfsg1-1) UNRELEASED; urgency=medium
 
   * Now not so fresh upstream release
+    - it was uploaded but I guess rejected for some reason
 
  -- Yaroslav Halchenko <debian@onerussian.com>  Fri, 27 Feb 2026 21:07:17 -0500
 
