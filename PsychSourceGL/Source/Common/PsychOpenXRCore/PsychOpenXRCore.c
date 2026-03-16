@@ -17,7 +17,7 @@
  * The runtime must support OpenGL as rendering backend for XR content.
  *
  * The driver was initially derived from PsychOculusVRCore1.
- * Copyright (c) 2022-2024 Mario Kleiner. Licensed to you under the MIT license:
+ * Copyright (c) 2022-2025 Mario Kleiner. Licensed to you under the MIT license:
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -318,7 +318,7 @@ void InitializeSynopsis(void)
 
     synopsis[i++] = "PsychOpenXRCore - A Psychtoolbox driver for OpenXR compatible VR/AR/MR/XR hardware.";
     synopsis[i++] = "This driver allows to use XR devices supported by a suitable OpenXR runtime of version 1.x.\n";
-    synopsis[i++] = "Copyright (c) 2022-2024 Mario Kleiner.";
+    synopsis[i++] = "Copyright (c) 2022-2025 Mario Kleiner.";
     synopsis[i++] = "The PsychOpenXRCore driver is licensed to you under the terms of the MIT license.";
     synopsis[i++] = "";
     synopsis[i++] = "For some experimental Monado specific timestamping implementation, the driver currently";
@@ -384,6 +384,51 @@ static double deg2rad(double deg)
 static double rad2deg(double rad)
 {
     return rad / M_PI * 180.0;
+}
+
+// Convert (tx,ty,tz,x,y,z,w) pose vector with (tx,ty,tz) = Position and (x,y,z,w) being an orientation quaternion
+// into a 4x4 OpenGL RHS style matrix which expresses the same pose. Like a simplified but fast version of our
+// M-File helper function eyePoseToCameraMatrix(), equivalent to M = eyePoseToCameraMatrix(eyePose);
+static void poseVectorToMatrix(double tx, double ty, double tz, double x, double y, double z, double w, double M[4][4])
+{
+    // 4x4 Matrix order is [column][row]:
+
+    // Upper 3x3 rotation matrix, converted from quaternion:
+    double Rxx = 1 - 2*(y*y + z*z);
+    double Rxy = 2*(x*y - z*w);
+    double Rxz = 2*(x*z + y*w);
+
+    double Ryx = 2*(x*y + z*w);
+    double Ryy = 1 - 2*(x*x + z*z);
+    double Ryz = 2*(y*z - x*w );
+
+    double Rzx = 2*(x*z - y*w );
+    double Rzy = 2*(y*z + x*w );
+    double Rzz = 1 - 2 *(x*x + y*y);
+
+    // Put upper 3x3 rotation matrix in place:
+    M[0][0] = Rxx;
+    M[0][1] = Ryx;
+    M[0][2] = Rzx;
+
+    M[1][0] = Rxy;
+    M[1][1] = Ryy;
+    M[1][2] = Rzy;
+
+    M[2][0] = Rxz;
+    M[2][1] = Ryz;
+    M[2][2] = Rzz;
+
+    // 4th column tx, ty, tz translation vector:
+    M[3][0] = tx;
+    M[3][1] = ty;
+    M[3][2] = tz;
+
+    // 4th row 0,0,0,1
+    M[0][3] = 0;
+    M[1][3] = 0;
+    M[2][3] = 0;
+    M[3][3] = 1;
 }
 
 PsychOpenXRDevice* PsychGetXR(int handle, psych_bool dontfail)
@@ -890,6 +935,8 @@ static int enumerateXRDevices(XrInstance instance) {
     if ((result == XR_ERROR_FORM_FACTOR_UNAVAILABLE) || (systemId == XR_NULL_SYSTEM_ID)) {
         return(0);
     }
+
+    availableSystems[numAvailableDevices].next = NULL;
 
     if (has_XR_EXT_eye_gaze_interaction)
         availableSystems[numAvailableDevices].next = &eyeGazeAvailable[numAvailableDevices];
@@ -2635,7 +2682,7 @@ PsychError PSYCHOPENXROpen(void)
     openxr->hasEyeTracking = eyeGazeAvailable[deviceIndex].supportsEyeGazeInteraction ? 1 : 0;
 
     // Record if basic hand tracking is available:
-    openxr->hasHandTracking = handTrackingAvailable[deviceIndex].supportsHandTracking ? 0 : 0;
+    openxr->hasHandTracking = handTrackingAvailable[deviceIndex].supportsHandTracking ? 1 : 0;
 
     // Use a fixed stereo view type by default for now, for typical HMD use:
     openxr->viewType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -3256,15 +3303,146 @@ PsychError PSYCHOPENXRStop(void)
 
 static PsychError PsychOpenXRTrackHands(PsychOpenXRDevice* openxr, int outArgPos, XrTime xrPredictionTime)
 {
-    const char *FieldNamesHand[] = { "Tracked", "Joints" };
-    const int FieldCountHand = 2;
+    const char *FieldNamesHand[] = { "Tracked", "Joints", "JointPosesMatrix" };
+    const int FieldCountHand = 3;
 
-    int StatusFlags;
+    double MP[XR_HAND_JOINT_COUNT_EXT][4][4];
     PsychGenericScriptType *status;
     PsychGenericScriptType *outMat;
+    int StatusFlags;
     double *v;
 
     if (openxr->hasHandTracking) {
+        int hand, joint;
+
+        // Hand tracker already created and initialized?
+        if (openxr->handTracker[0] == XR_NULL_HANDLE || openxr->handTracker[1] == XR_NULL_HANDLE) {
+            // No. Do it now for both left and right hand:
+            if (verbosity > 3)
+                printf("PsychOpenXRCore-INFO: Creating left and right hand articulated hand trackers.\n");
+
+            for (hand = 0; hand < 2; hand++) {
+                XrHandTrackerCreateInfoEXT createHandTrackerInfo;
+                createHandTrackerInfo.type = XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT;
+                createHandTrackerInfo.handJointSet = XR_HAND_JOINT_SET_DEFAULT_EXT;
+                createHandTrackerInfo.hand = hand ? XR_HAND_RIGHT_EXT : XR_HAND_LEFT_EXT;
+
+                if (!resultOK(pxrCreateHandTrackerEXT(openxr->hmd, &createHandTrackerInfo, &openxr->handTracker[hand]))) {
+                    if (verbosity > 0)
+                        printf("PsychOpenXRCore-ERROR: Failed to create hand tracker for hand %i - xrCreateHandTrackerEXT() failed: %s\n",
+                               hand, errorString);
+
+                        PsychErrorExitMsg(PsychError_system, "Failed to create an articulated hand tracker.");
+                }
+            }
+
+            if (verbosity > 3)
+                printf("PsychOpenXRCore-INFO: Left and right hand articulated hand trackers ready.\n");
+        }
+
+        // At this point, hand trackers for both hands are available and initialized.
+
+        // Allocate a 2 struct elements array for return of hand tracking data:
+        PsychAllocOutStructArray(outArgPos, kPsychArgOptional, 2, FieldCountHand, FieldNamesHand, &status);
+
+        // Array for storing all hand joints location and state:
+        XrHandJointLocationEXT jointLocations[XR_HAND_JOINT_COUNT_EXT];
+
+        XrHandJointLocationsEXT handJointLocations;
+        handJointLocations.type = XR_TYPE_HAND_JOINT_LOCATIONS_EXT;
+        handJointLocations.next = NULL;
+        handJointLocations.jointCount = XR_HAND_JOINT_COUNT_EXT;
+        handJointLocations.jointLocations = jointLocations;
+
+        XrHandJointsLocateInfoEXT handJointsLocateInfo;
+        handJointsLocateInfo.type = XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT;
+        handJointsLocateInfo.next = NULL;
+        handJointsLocateInfo.baseSpace = openxr->worldSpace;
+        handJointsLocateInfo.time = xrPredictionTime;
+
+        for (hand = 0; hand < 2; hand++) {
+            if (!resultOK(pxrLocateHandJointsEXT(openxr->handTracker[hand], &handJointsLocateInfo, &handJointLocations))) {
+                if (verbosity > 1)
+                    printf("PsychOpenXRCore-WARNING: In hand tracking - xrLocateHandJointsEXT() failed for hand %i: %s\n", hand, errorString);
+            }
+
+            if (verbosity > 3)
+                printf("PsychOpenXRCore-DEBUG: Articulated hand tracking for hand %i: Hand is tracked %i.\n", hand, handJointLocations.isActive);
+
+            // Tracking state of this hand:
+            PsychSetStructArrayDoubleElement("Tracked", hand, (double) handJointLocations.isActive, status);
+
+            // Joints matrix, encoding joint state of all joints, one column for each joint,
+            // the different rows encoding different joint properties for each joint / column:
+            // a 3 component 3D joint center position + 4 component
+            // joint orientation quaternion:
+            v = NULL;
+            PsychAllocateNativeDoubleMat(1 + 1 + 7, handJointLocations.jointCount, 1, &v, &outMat);
+
+            // Assign to Joints struct element for this hands struct:
+            PsychSetStructArrayNativeElement("Joints", hand, outMat, status);
+
+            // Set MP matrix array to all-zero:
+            memset(MP, 0, sizeof(MP));
+
+            for (joint = 0; joint < handJointLocations.jointCount; joint++) {
+                // Joint tracking state:
+                StatusFlags = 0;
+
+                // Any position and orientation available?
+                if (jointLocations[joint].locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT &&
+                    jointLocations[joint].locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)
+                    StatusFlags |= 1;
+
+                // Active joint position and orientation from hardware tracking?
+                if (jointLocations[joint].locationFlags & XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT &&
+                    jointLocations[joint].locationFlags & XR_SPACE_LOCATION_POSITION_TRACKED_BIT)
+                    StatusFlags |= 2;
+
+                // Return tracking status of joint in row 1 of marix:
+                *v++ = (double) StatusFlags;
+
+                // Return estimated radius of joint in row 2:
+                *v++ = (double) jointLocations[joint].radius;
+
+                // Return 7-elements of pose vector in rows 3-9:
+                // Rows 3-5 for (x ; y ; z) location of joint in reference worldSpace:
+                *v++ = jointLocations[joint].pose.position.x;
+                *v++ = jointLocations[joint].pose.position.y;
+                *v++ = jointLocations[joint].pose.position.z;
+
+                // Rows 6-9 for [rx; ry; rz; rw] orientation quaternion:
+                *v++ = jointLocations[joint].pose.orientation.x;
+                *v++ = jointLocations[joint].pose.orientation.y;
+                *v++ = jointLocations[joint].pose.orientation.z;
+                *v++ = jointLocations[joint].pose.orientation.w;
+
+                // Joint pose valid?
+                if (StatusFlags & 3) {
+                    // Yes: Convert to pose matrix MP. Order is [column][row]:
+                    poseVectorToMatrix(jointLocations[joint].pose.position.x, jointLocations[joint].pose.position.y, jointLocations[joint].pose.position.z, jointLocations[joint].pose.orientation.x,
+                                       jointLocations[joint].pose.orientation.y, jointLocations[joint].pose.orientation.z, jointLocations[joint].pose.orientation.w, MP[joint]);
+                }
+                else {
+                    // No: Init with diagonal neutral 1's matrix:
+                    MP[joint][0][0] = 1;
+                    MP[joint][1][1] = 1;
+                    MP[joint][2][2] = 1;
+                    MP[joint][3][3] = 1;
+                }
+            }
+
+            // JointPosesMatrix is a 4 x 4 by jointCount matrix for each hand:
+            PsychAllocateNativeDoubleMat(4, 4, handJointLocations.jointCount, &v, &outMat);
+
+            // Assign to JointPosesMatrix struct element for this hands struct:
+            PsychSetStructArrayNativeElement("JointPosesMatrix", hand, outMat, status);
+
+            // Copy MP into v output matrix stack:
+            memcpy(v, MP, sizeof(MP));
+
+            // Done with this hand. On to next hand...
+        }
     }
     else {
         // Allocate out an empty struct:
@@ -3286,7 +3464,7 @@ PsychError PSYCHOPENXRGetTrackingState(void)
         "the most likely presentation time for immediately rendered images.\n"
         "'reqMask' mask defining which information to return. Defaults to all information. Values are "
         "+1 for head/eye tracking, +2 for hand controller tracking, +4 for eye gaze tracking, "
-        "+8 for articulated hand and finger tracking (Not yet supported in this driver release).\n\n"
+        "+8 for articulated hand and finger tracking.\n\n"
         "'state' is a struct with fields reporting the following values:\n"
         "'Time' = Time in seconds of returned tracking state.\n"
         "'Status' = Tracking status flags:\n"
@@ -3345,7 +3523,7 @@ PsychError PSYCHOPENXRGetTrackingState(void)
         "+2 = Tracked gaze position available. This is possibly subject to interpolation or extrapolation.\n"
         "'GazePose' = Position and orientation of the eye, expressing a gaze vector in its usual [x,y,z,rx,ry,rz,rw] form.\n"
         " \n"
-        "Articulated hand tracking on supported hardware: PRELIMINARY DOCS, SUBJECT TO INCOMPATIBLE CHANGES!\n"
+        "Articulated hand tracking on supported hardware:\n"
         " \n"
         "The return argument 'hands' is a struct array with 2 structs, one for each hand. hands(1) returns "
         "information about the left hand, hands(2) returns information about the right hand.\n"
@@ -3361,6 +3539,7 @@ PsychError PSYCHOPENXRGetTrackingState(void)
         "Row 2 encodes the radius in meters of this joint - The estimated distance from joint axis to skin of the hand.\n"
         "Rows 3-5 encode the 3D [x; y; z] position in meters of the joint in the tracking reference space.\n"
         "Rows 6-9 define the [rx; ry; rz; rw] quaternion, encoding the relative orientation of the joint with respect to the tracking reference space.\n"
+        "'JointPosesMatrix' A OpenGL style RHS transformation matrix which encodes all joints poses: 4-by-4-by-26 matrix, ie. one 4x4 matrix per joint.\n"
         "\n";
     static char seeAlsoString[] = "Start Stop GetTrackersState GetInputState";
 
@@ -4508,7 +4687,7 @@ PsychError PSYCHOPENXRTimingSupport(void)
     "Return available level of precise timing and timestamping support for OpenXR device 'openxrPtr'. "
     "If 'openxrPtr' is omitted, a more basic, general assessment of the OpenXR runtimes capabilities "
     "is returned.\n"
-    "Standard unextended OpenXR-1 runtimes, as of April 2024, do not support reliable visual onset "
+    "Standard unextended OpenXR-1 runtimes, as of March 2025, do not support reliable visual onset "
     "timestamping, and most tested runtimes don't support reliable onset timing either. These runtimes "
     "will return zero, hinting at the need for multi-threading tricks for bearable precision.\n"
     "The open-source Monado runtime does support precise onset timing, and may support some better "

@@ -64,6 +64,15 @@ GLenum glewContextInit(void);
 // source tree, as permitted by license, just like presentation_timing-protocol.c:
 #include "presentation_timing-client-protocol.h"
 
+// Header file for commit-timing-protocol extension:
+#include "commit_timing-client-protocol.h"
+
+// fifo protocol extension:
+#include "fifo-client-protocol.h"
+
+// viewporter extension for HiDPI scaling:
+#include "viewporter-client-protocol.h"
+
 // XDG shell protocol:
 #include "xdg_shell-client-protocol.h"
 
@@ -85,6 +94,12 @@ extern psych_bool displayOriginalCGSettingsValid[kPsychMaxPossibleDisplays];
 
 // From PsychScreenGlueWayland.c:
 struct wp_presentation *get_wayland_presentation_extension(PsychWindowRecordType* windowRecord);
+struct wp_commit_timing_manager_v1 *get_wayland_commit_timing_manager(PsychWindowRecordType* windowRecord);
+extern struct wp_fifo_manager_v1 *wayland_fifo_manager;
+extern struct wp_viewporter *wayland_viewporter;
+
+// Function in PsychScreenGlueWayland.c:
+double PsychGetScreenOutputScale(int screenNumber);
 
 // Container with feedback about a completed swap - the equivalent of
 // our good old INTEL_swap_event on X11/GLX, here for Wayland:
@@ -228,7 +243,7 @@ wayland_feedback_presented(void *data,
 
     // Delete our own completion wayland_feedback container if swap completion logging
     // isn't enabled:
-    if (windowRecord->swapevents_enabled == 0) destroy_wayland_feedback(wayland_feedback);
+    if (windowRecord->swapevents_enabled <= 0) destroy_wayland_feedback(wayland_feedback);
 
     return;
 }
@@ -256,7 +271,7 @@ wayland_feedback_discarded(void *data, struct wp_presentation_feedback *presenta
 
     // Delete our own completion wayland_feedback container if swap completion logging
     // isn't enabled:
-    if (windowRecord->swapevents_enabled == 0) destroy_wayland_feedback(wayland_feedback);
+    if (windowRecord->swapevents_enabled <= 0) destroy_wayland_feedback(wayland_feedback);
 }
 
 static void
@@ -319,6 +334,9 @@ void PsychOSProcessEvents(PsychWindowRecordType *windowRecord, int flags)
 {
     int w, h, x, y;
 
+    // This non-sensical query just to trigger Wayland event processing in PsychScreenGlueWayland.c:
+    PsychGetDisplaySize(0, &w, &h);
+
     // Trigger event queue dispatch processing for GUI windows:
     if (windowRecord == NULL) {
         // No op, so far...
@@ -370,7 +388,8 @@ psych_bool PsychOSOpenOnscreenWindow(PsychScreenSettingsType * screenSettings, P
     CGDirectDisplayID dpy;
     int scrnum;
     unsigned long mask;
-    int i, x, y, width, height, nrconfigs, buffdepth;
+    int i, x, y, nrconfigs, buffdepth;
+    long width, height;
     GLenum glerr;
     int32_t attrib[41];
     int attribcount = 0;
@@ -385,6 +404,7 @@ psych_bool PsychOSOpenOnscreenWindow(PsychScreenSettingsType * screenSettings, P
     union waffle_native_window *wafflewin;
     struct waffle_wayland_window *wayland_window;
     struct waffle_context *ctx;
+    psych_bool useFullRetina = (windowRecord->specialflags & kPsychNeedRetinaResolution) ? TRUE : FALSE;
 
     // Always init the list for wayland present events:
     wl_list_init(&windowRecord->targetSpecific.presentation_feedback_list);
@@ -545,6 +565,16 @@ psych_bool PsychOSOpenOnscreenWindow(PsychScreenSettingsType * screenSettings, P
     // HACK TODO:
     windowRecord->targetSpecific.privDpy = NULL;
 
+    // Use of native display Retina / HiDPI resolution requested? We can only do that with
+    // the help of the wp_viewporter extension, so if that is unsupported then force disable
+    // useFullRetina:
+    if (useFullRetina && !wayland_viewporter) {
+        useFullRetina = FALSE;
+        if (PsychPrefStateGet_Verbosity() > 0)
+            printf("PTB-ERROR: Native Retina resolution requested for window %i, but required wp_viewporter extension unsupported. Fallback to non-Retina mode.\n",
+                   windowRecord->windowIndex);
+    }
+
     // Check if this should be a fullscreen window:
     PsychGetScreenRect(screenSettings->screenNumber, screenrect);
     if (PsychMatchRect(screenrect, windowRecord->rect)) windowRecord->specialflags |= kPsychIsFullscreenWindow;
@@ -557,8 +587,16 @@ psych_bool PsychOSOpenOnscreenWindow(PsychScreenSettingsType * screenSettings, P
         // the current display/desktop:
         x = 0;
         y = 0;
-        width = PsychGetWidthFromRect(screenrect);
-        height = PsychGetHeightFromRect(screenrect);
+
+        if (useFullRetina) {
+            PsychGetScreenPixelSize(screenSettings->screenNumber, &width, &height);
+        }
+        else {
+            PsychGetScreenSize(screenSettings->screenNumber, &width, &height);
+        }
+
+        // Sync window rect to expected reality:
+        PsychMakeRect(windowRecord->rect, x, y, x + (int) width, y + (int) height);
 
         // Mark this window as fullscreen window:
         windowRecord->specialflags |= kPsychIsFullscreenWindow;
@@ -578,9 +616,12 @@ psych_bool PsychOSOpenOnscreenWindow(PsychScreenSettingsType * screenSettings, P
 
         // Copy absolute screen location and area of window to 'globalrect',
         // so functions like Screen('GlobalRect') can still query the real
-        // bounding gox of a window onscreen:
+        // bounding box of a window onscreen:
         PsychCopyRect(windowRecord->globalrect, windowRecord->rect);
     }
+
+    if (PsychPrefStateGet_Verbosity() > 3)
+        printf("PTB-INFO: Wayland window %i framebuffer content width x height is %i x %i\n", windowRecord->windowIndex, width, height);
 
     // Select OpenGL context API for use with this window:
     attrib[attribcount++] = WAFFLE_CONTEXT_API;
@@ -628,8 +669,9 @@ psych_bool PsychOSOpenOnscreenWindow(PsychScreenSettingsType * screenSettings, P
     } else if (bpc == 10) {
         // 10 bpc drawable: We have a 32 bpp pixel format with R10G10B10 10 bpc per color channel.
         // There are at most 2 bits left for the alpha channel, so we request an alpha channel with
-        // minimum size 1 bit --> Will likely translate into a 2 bit alpha channel:
-        attrib[attribcount++] = 1;
+        // minimum size 1 bit --> Will likely translate into a 2 bit alpha channel, unless this is a
+        // fullscreen opaque window, which does not have use for alpha, so request no alpha channel:
+        attrib[attribcount++] = ((windowRecord->specialflags & kPsychIsFullscreenWindow) && (windowLevel >= 2000)) ? 0 : 1;
     }
     else {
         // 11 bpc drawable - or more likely a 32 bpp drawable with R11G11B10, ie., all 32 bpp
@@ -807,6 +849,47 @@ psych_bool PsychOSOpenOnscreenWindow(PsychScreenSettingsType * screenSettings, P
 
     wafflewin = waffle_window_get_native(window);
     wayland_window = wafflewin->wayland;
+
+    // windowrect width x height == width x height == waffle window width x height == wl_buffer width x height == OpenGL window width x height
+    // Non-Retina windowed:   No viewporter => wl_buffer size == wl_surface logical size --> Will be scaled up by compositor on Retina display.
+    // Non-Retina fullscreen: No viewporter => wl_buffer size is Wayland output logical size == wl_surface logical size (covering whole output) --> Will be scaled up by compositor on Retina.
+    // Retina windowed: Viewporter: wl_buffer size is windowrect size, viewporter dest size == wl_surface size = windowrect size / retina scaling --> Upscale by compositor * retina == cancels out.
+    // Retina fullscreen: Viewporter: wl_buffer size is Wayland output PHYSICAL size, viewporter dest size = wl_surface size == Wayland output logical size ~ wl_buffer size / retina scaling.
+    // If wp_viewporter extension is available, use it for wl_buffer -> wl_surface cropping, scaling, sizing to handle
+
+    // Non-Retina: No viewporter, width and height from user window rect (windowed) or logical output size (fullscreen) aka PsychGetScreenRect()       : All scaled up by compositor.
+    // Retina:    Use viewporter, width and height from user window rect (windowed) or physical output size (fullscreen) aka PsychGetScreenPixelSize() : vp dstsize = size / retina scaling
+    // Retina / HiDPI displays in an appropriate way:
+    PsychUnlockDisplay();
+    if (useFullRetina && wayland_viewporter) {
+        // Destination size aka wl_surface size is in Wayland desktop logical pixel units, not display physical pixel units.
+        // Calculate logical size as width x height divided by Retina scaling factor:
+        double scale = PsychGetScreenOutputScale(screenSettings->screenNumber);
+        long surface_logical_width = (long) (width / scale + 0.5);
+        long surface_logical_height = (long) (height / scale + 0.5);
+
+        // For fullscreen windows, override with queried logical size of the output, to avoid any roundoff errors:
+        if (windowRecord->specialflags & kPsychIsFullscreenWindow)
+            PsychGetScreenSize(screenSettings->screenNumber, &surface_logical_width, &surface_logical_height);
+
+        // Create Wayland viewporter to enforce surface_logical_width x surface_logical_height size of output wl_surface:
+        windowRecord->targetSpecific.wp_viewport = wp_viewporter_get_viewport(wayland_viewporter, wayland_window->wl_surface);
+        if (windowRecord->targetSpecific.wp_viewport) {
+            if (PsychPrefStateGet_Verbosity() > 3)
+                printf("\nPTB-INFO: Native Retina mode: Attaching Wayland viewporter to window %i. Scaled (%0.2f%%) window output logical size set to %i x %i points.\n", 100 * scale,
+                       windowRecord->windowIndex, surface_logical_width, surface_logical_height);
+
+            //wp_viewport_set_source(windowRecord->targetSpecific.wp_viewport, wl_fixed_from_double(0), wl_fixed_from_double(0), wl_fixed_from_double(width), wl_fixed_from_double(height));
+            wp_viewport_set_destination(windowRecord->targetSpecific.wp_viewport, (int32_t) surface_logical_width, (int32_t) surface_logical_height);
+        }
+        else {
+            if (PsychPrefStateGet_Verbosity() > 0)
+                printf("\nPTB-ERROR: Attaching Wayland viewporter to window %i for native Retina resolution failed! This should not happen! Expect Retina scaling trouble on HiDPI displays!\n",
+                       windowRecord->windowIndex);
+        }
+    }
+
+    PsychLockDisplay();
 
     // Set hints for window sizing and positioning:
     // TODO FIXME Wayland...
@@ -1200,6 +1283,17 @@ void PsychOSCloseWindow(PsychWindowRecordType * windowRecord)
 
     PsychLockDisplay();
 
+    // Destroy a potentially associated commit timer:
+    if (windowRecord->targetSpecific.wp_commit_timer) {
+        wp_commit_timer_v1_destroy((struct wp_commit_timer_v1*) windowRecord->targetSpecific.wp_commit_timer);
+        windowRecord->targetSpecific.wp_commit_timer = NULL;
+    }
+
+    if (windowRecord->targetSpecific.wp_fifo) {
+        wp_fifo_v1_destroy(windowRecord->targetSpecific.wp_fifo);
+        windowRecord->targetSpecific.wp_fifo = NULL;
+    }
+
     // Detach OpenGL rendering context again - just to be safe!
     waffle_make_current(windowRecord->targetSpecific.deviceContext, NULL, NULL);
     currentContext = NULL;
@@ -1216,6 +1310,11 @@ void PsychOSCloseWindow(PsychWindowRecordType * windowRecord)
     if (windowRecord->targetSpecific.glusercontextObject) {
         waffle_context_destroy(windowRecord->targetSpecific.glusercontextObject);
         windowRecord->targetSpecific.glusercontextObject = NULL;
+    }
+
+    if (windowRecord->targetSpecific.wp_viewport) {
+        wp_viewport_destroy(windowRecord->targetSpecific.wp_viewport);
+        windowRecord->targetSpecific.wp_viewport = NULL;
     }
 
     // Close & Destroy the window:
@@ -1457,7 +1556,7 @@ psych_int64 PsychOSGetSwapCompletionTimestamp(PsychWindowRecordType *windowRecor
         !(windowRecord->swapcompletiontype & WP_PRESENTATION_FEEDBACK_KIND_ZERO_COPY) && (PsychPrefStateGet_Verbosity() > 1)) {
         // Do some rate limiting for the moment - Only one warning every 600 flips:
         static unsigned int ratelimitcounter = 0;
-        if ((ratelimitcounter++ % 600) == 0)
+        if (((ratelimitcounter++ % 600) == 0) && (ratelimitcounter > 0))
             printf("PTB-WARNING: Flip for window %i didn't use zero copy pageflips %i times. Stimulus may not display pixel-perfect as specified.\n",
                    windowRecord->windowIndex, ratelimitcounter);
     }
@@ -1478,13 +1577,25 @@ psych_int64 PsychOSGetSwapCompletionTimestamp(PsychWindowRecordType *windowRecor
  */
 void PsychOSInitializeOpenML(PsychWindowRecordType *windowRecord)
 {
+    struct wp_commit_timing_manager_v1 *wayland_commit_timing_manager = NULL;
+
+    // Retrieve underlying native wl_surface stored in xwindowHandle:
+    struct wl_surface *wl_surface = windowRecord->targetSpecific.xwindowHandle;
+
+    // Use of Wayland fifo protocol and wp_commit_timing protocol is only safe if our window is not presented through Vulkan/WSI/Wayland,
+    // as that uses those protocols internally, and there can only be one! So we need to exclude direct use of Vulkan/WSI via our PsychVulkan
+    // driver (signalled by kPsychExternalDisplayMethod), and indirect use via the Mesa gallium zink OpenGL-on-Vulkan driver, unless zink does
+    // not use its Vulkan/WSI based Kopper display backend, but the traditional X11/GLX backend:
+    psych_bool fifo_timing_safe = ((!strstr((char*) glGetString(GL_RENDERER), "zink") || (getenv("LIBGL_KOPPER_DISABLE") && atoi(getenv("LIBGL_KOPPER_DISABLE")))) &&
+                                    !(windowRecord->specialflags & kPsychExternalDisplayMethod));
+
     // Initialize fudge factor needed by PsychOSAdjustForCompositorDelay().
     // Default to 0.2 msecs, allow user override for testing and benchmarking via
     // environment variable:
     delayFromFrameStart = 0.0002;
     if (getenv("PSYCH_WAYLAND_SWAPDELAY")) delayFromFrameStart = atof(getenv("PSYCH_WAYLAND_SWAPDELAY"));
 
-    // Disable clever swap scheduling for now:
+    // Disable clever swap scheduling by default:
     windowRecord->gfxcaps &= ~kPsychGfxCapSupportsOpenML;
 
     // Timestamping in PsychOSGetSwapCompletionTimestamp() and PsychOSGetVBLTimeAndCount() disabled:
@@ -1502,8 +1613,34 @@ void PsychOSInitializeOpenML(PsychWindowRecordType *windowRecord)
     // Enable use of Wayland presentation_feedback extension for swap completion timestamping:
     windowRecord->specialflags &= ~kPsychOpenMLDefective;
 
-    // Ready to rock on Wayland:
-    if (PsychPrefStateGet_Verbosity() > 3) printf("PTB-INFO: Enabling Wayland wp_presentation_feedback extension for swap completion timestamping.\n");
+    if (PsychPrefStateGet_Verbosity() > 3) printf("PTB-INFO: Enabling Wayland wp_presentation_feedback extension for swap completion timestamping on window %i.\n", windowRecord->windowIndex);
+
+    // Enable clever swap scheduling if the required wp_commit_timing extension version 1 or later is supported,
+    // unless this is disabled upon user script request, or not safe due to concurrent use of Vulkan/WSI or zink:
+    if (!(PsychPrefStateGet_ConserveVRAM() & kPsychDisableOpenMLScheduling) && fifo_timing_safe &&
+        ((wayland_commit_timing_manager = get_wayland_commit_timing_manager(windowRecord)) != NULL)) {
+        // Create wp_commit_timer for windowRecord's associated wl_surface:
+        windowRecord->targetSpecific.wp_commit_timer = (void*) wp_commit_timing_manager_v1_get_timer(wayland_commit_timing_manager, wl_surface);
+        if (windowRecord->targetSpecific.wp_commit_timer) {
+            // Mark clever swap scheduling as usable for this windowRecord:
+            windowRecord->gfxcaps |= kPsychGfxCapSupportsOpenML;
+
+            if (PsychPrefStateGet_Verbosity() > 3)
+                printf("PTB-INFO: Enabling Wayland wp_commit_timing extension for swap scheduling on window %i.\n", windowRecord->windowIndex);
+        }
+        else if (PsychPrefStateGet_Verbosity() > 1) {
+            printf("PTB-WARNING: Failed to enable Wayland wp_commit_timing extension for swap scheduling on window %i. Could not get commit timer object for wl_surface!\n",
+                   windowRecord->windowIndex);
+        }
+    }
+
+    // Support for fifo extension? Bind a control object for the surface if so and if it is safe to do:
+    if (wayland_fifo_manager && fifo_timing_safe) {
+        // wp_fifo supported, and zink driver and/or Vulkan/WSI not in use - go for it:
+        windowRecord->targetSpecific.wp_fifo = (void*) wp_fifo_manager_v1_get_fifo(wayland_fifo_manager, wl_surface);
+        if (windowRecord->targetSpecific.wp_fifo && (PsychPrefStateGet_Verbosity() > 3))
+            printf("PTB-INFO: Enabling Wayland wp_fifo extension for swap control on window %i.\n", windowRecord->windowIndex);
+    }
 
     return;
 }
@@ -1514,31 +1651,119 @@ void PsychOSInitializeOpenML(PsychWindowRecordType *windowRecord)
     Schedules a double buffer swap operation for given window at a given
     specific target time or target refresh count in a specified way.
 
-    This uses OS specific API's and algorithms to schedule the asynchronous
+    This uses Wayland specific protocol extensions to schedule the asynchronous
     swap. This function is optional, target platforms are free to not implement
-    it but simply return a "not supported" status code.
+    it but simply return a "not supported" status code. In case of Wayland, as
+    the timing extensions are optional, returns a "not supported" status in case
+    the extension is unsupported, or explicitely disabled on user script request,
+    or if an unsupported argument is passed.
+
+    Currently all non-zero arguments except for target time tWhen are unsupported
+    and will trigger the fallback path.
 
     Arguments:
 
     windowRecord - The window to be swapped.
     tWhen        - Requested target system time for swap. Swap shall happen at first
-                    VSync >= tWhen.
-    targetMSC    - If non-zero, specifies target msc count for swap. Overrides tWhen.
-    divisor, remainder - If set to non-zero, msc at swap must satisfy (msc % divisor) == remainder.
+                   possible time >= tWhen.
+    targetMSC    - Unsupported: If non-zero, specifies target msc count for swap. Overrides tWhen.
+    divisor, remainder - Unsupported: If set to non-zero, msc at swap must satisfy (msc % divisor) == remainder.
     specialFlags - Additional options, a bit field consisting of single bits that can be or'ed together:
-                    1 = Constrain swaps to even msc values, 2 = Constrain swaps to odd msc values. (Used for frame-seq. stereo field selection)
+                   Unsupported: 1 = Constrain swaps to even msc values, 2 = Constrain swaps to odd msc values.
 
     Return value:
 
-    Value greater than or equal to zero on success: The target msc for which swap is scheduled.
+    Value greater than or equal to zero on success: In theoy the target msc for which swap is scheduled.
+    In practice the value 0 is returned, as the concept of target msc does not exist under Wayland.
+
     Negative value: Error. Function failed. -1 == Function unsupported on current system configuration.
+    This triggers silent fallback to timed wait + swap scheduling.
     -2 ... -x == Error condition.
 
 */
 psych_int64 PsychOSScheduleFlipWindowBuffers(PsychWindowRecordType *windowRecord, double tWhen, psych_int64 targetMSC, psych_int64 divisor, psych_int64 remainder, unsigned int specialFlags)
 {
-    // Unsupported:
-    return(-1);
+    double tComp;
+    uint32_t tv_sec_hi, tv_sec_lo, tv_nsec;
+
+    // wp_commit_timing unsupported for this windows wl_surface, or in general?
+    if (!windowRecord->targetSpecific.wp_commit_timer) {
+        // Unsupported return code to trigger fallback:
+        return(-1);
+    }
+
+    // Is the extension supported by the system and enabled by Psychtoolbox and user? If not, we return
+    // a "not-supported" status code of -1 and turn into a no-op. Use the OpenML flag as stand in for swap
+    // scheduling:
+    if (!(windowRecord->gfxcaps & kPsychGfxCapSupportsOpenML))
+        return(-1);
+
+    // Reject all unsupported parameters and flags:
+    if (targetMSC != 0 || divisor != 0 || remainder != 0 || specialFlags != 0) {
+        if (PsychPrefStateGet_Verbosity() > 1)
+            printf("PTB-WARNING: PsychOSScheduleFlipWindowBuffers() called with  a non-zero targetMSC %lli, divisor %lli, remainder %lli or specialFlags %i. This is not supported on Wayland. Fallback to simple timing!\n",
+                  targetMSC, divisor, remainder, specialFlags);
+
+        // Signal "unsupported" to trigger fallback:
+        return(-1);
+    }
+
+    // Clamp target time to positive values:
+    if (tWhen < 0)
+        tWhen = 0;
+
+    // Convert tWhen to compositor timebase tComp:
+    switch (wayland_presentation_clock_id) {
+        case CLOCK_MONOTONIC:
+            tComp = PsychOSRefTimeToMonotonicTime(tWhen);
+            break;
+
+        case CLOCK_REALTIME:
+            // TODO Only correct if our main_clock is CLOCK_REALTIME, handle monotonic -> realtime!
+            if (FALSE) {
+            //if (main_clock != CLOCK_REALTIME) {
+                if (PsychPrefStateGet_Verbosity() > 1)
+                    printf("PTB-WARNING: PsychOSScheduleFlipWindowBuffers(): Wayland compositor uses CLOCK_REALTIME presentation clock, but Psychtoolbox doesn't, and no mapping available! Fallback to simple timing!\n");
+
+                // Signal "unsupported" to trigger fallback:
+                return(-1);
+            }
+
+            // Matching clocks, therefore identity mapping:
+            tComp = tWhen;
+            break;
+
+        default:
+            if (PsychPrefStateGet_Verbosity() > 0)
+                printf("PTB-ERROR: PsychOSScheduleFlipWindowBuffers(): Wayland compositor uses unknown presentation clock of id %i! Fallback to simple timing!\n", wayland_presentation_clock_id);
+
+            // Signal "unsupported" to trigger fallback:
+            return(-1);
+    }
+
+    // Clamp mapped target time to positive values:
+    if (tComp < 0)
+        tComp = 0;
+
+    // Split to 32 bit seconds hi/lo and nanoseconds values:
+    psych_uint64 secs = (psych_uint64) tComp;
+    tv_sec_hi = (uint32_t) (secs >> 32);
+    tv_sec_lo = (uint32_t) (secs & 0xffffffff);
+    tv_nsec = (uint32_t) ((tComp - (double) secs) * 1e9);
+
+    // Use wp_commit_timer for this wl_surface to add target presentation time, converted from tWhen:
+    wp_commit_timer_v1_set_timestamp((struct wp_commit_timer_v1*) windowRecord->targetSpecific.wp_commit_timer, tv_sec_hi, tv_sec_lo, tv_nsec);
+
+    // Trigger normal swap / Wayland surface commit sequence by (ab)using PsychOSFlipWindowBuffers():
+    PsychOSFlipWindowBuffers(windowRecord);
+
+    if (PsychPrefStateGet_Verbosity() > 12)
+        printf("PTB-DEBUG:PsychOSScheduleFlipWindowBuffers() scheduled a Wayland surface present for target time %f seconds [Compositor clock %f seconds].\n", tWhen, tComp);
+
+    // Return a "fake msc" of 0 to signal success. Wayland commit timing protocol does not support or
+    // report a target msc "vblank count", as scheduling is not based on vblank counts, but on absolute
+    // presentation target times:
+    return(0);
 }
 
 /*
@@ -1554,14 +1779,37 @@ void PsychOSFlipWindowBuffers(PsychWindowRecordType *windowRecord)
         wayland_window_create_feedback(windowRecord);
     }
 
+    // If fifo protocol supported, use it to add a new fifo barrier to this window present, and make
+    // the upcoming new present of this window wait for a potentially pending fifo barrier from a previous
+    // present. This should make sure that any presented image is on screen for at least one video refresh
+    // cycle, ie. FIFO present behaviour instead of default Wayland MAILBOX behaviour, where a "presented"
+    // image can be discarded if a more recent one is presented in the same video refresh cycle - ie. an
+    // image never shows:
+    if (windowRecord->targetSpecific.wp_fifo) {
+        wp_fifo_v1_set_barrier(windowRecord->targetSpecific.wp_fifo);
+        wp_fifo_v1_wait_barrier(windowRecord->targetSpecific.wp_fifo);
+    }
+
     // Execute OS neutral bufferswap code first:
     PsychExecuteBufferSwapPrefix(windowRecord);
 
     // Trigger the "Front <-> Back buffer swap (flip) (on next vertical retrace)":
-    // This must be lock-protected for use with X11/XLib.
+    // This must be lock-protected.
     PsychLockDisplay();
     waffle_window_swap_buffers(windowRecord->targetSpecific.windowHandle);
     windowRecord->target_sbc = windowRecord->submitted_sbc;
+
+    // HACK: Immediately post-swap, we must "resize" the Waffle window to the size it is supposed to have,
+    // aka the windowRecord->rect. Why? This is for Retina / HiDPI displays in 'useFullRetina' mode,
+    // when the framebuffer size / EGL window size must match the full native resolution. As Waffle
+    // is unaware of Retina stuff, it will resize the EGL framebuffer whenever it receives a configure
+    // event - which contains the virtual size of the wl_surface, not the wanted framebuffer size!
+    // The effect is that the framebuffer gets reduced in size periodically during each swap, and we
+    // must manually counteract this here Immediately post-swap and before the first render. Wayland
+    // EGL is designed to latch actual EGL window size and framebuffer size on first glDrawXXX call
+    // after swap, so this should hopefully do the trick, and at least does so under testing with
+    // KDE KWin 6.4 + Mesa 25.2.0, so fingers crossed for this hack:
+    waffle_window_resize(windowRecord->targetSpecific.windowHandle,(int) PsychGetWidthFromRect(windowRecord->rect), (int) PsychGetHeightFromRect(windowRecord->rect));
     PsychUnlockDisplay();
 
     return;
@@ -1727,22 +1975,23 @@ psych_bool PsychOSSwapCompletionLogging(PsychWindowRecordType *windowRecord, int
 
     // Currently only have meaningful handling for Wayland with wp_presentation_feedback extension:
     if (!(windowRecord->specialflags & kPsychOpenMLDefective)) {
-        if (cmd == 0 || cmd == 1 || cmd == 2) {
-            // Check if wp_presentation_feedback extension is supported. Enable/Disable swap completion event delivery for our window, if so:
+        if (cmd == 0 || cmd == 1 || cmd == 2 || cmd == 6) {
+            // Enable/Disable swap completion event delivery for our window, as specified by cmd:
             PsychLockDisplay();
+
             // Logical enable state: Usercode has precedence. If it enables it goes to it. If it disabled,
-            // it gets directed to us:
-            // UPDATE: Actually no. Disable by usercode means disable for now, until we have an actual
-            // use case for automatic redirection to our code on Wayland. Otherwise we'd just incur extra
-            // overhead for nothing.
-            // Old style with redirect: if (cmd == 0 || cmd == 1) windowRecord->swapevents_enabled = (cmd == 1) ? 1 : 2;
-            // New style: Enable if usercode wants it, disable if usercode doesn't want it:
-            if (cmd == 0 || cmd == 1) windowRecord->swapevents_enabled = cmd;
+            // it gets directed to external backend handling:
+            if (cmd == 0 || cmd == 1) windowRecord->swapevents_enabled = (cmd == 1) ? 1 : -1;
 
             // If we want the data and usercode doesn't have exclusive access to it already, then redirect to us:
+            // Note: Not used atm.
             if (cmd == 2 && (windowRecord->swapevents_enabled != 1)) windowRecord->swapevents_enabled = 2;
 
+            // If we want the data for external backend and usercode doesn't have exclusive access to it already, then redirect to us:
+            if (cmd == 6 && (windowRecord->swapevents_enabled != 1)) windowRecord->swapevents_enabled = -1;
+
             PsychUnlockDisplay();
+
             return(TRUE);
         }
 
@@ -1929,6 +2178,12 @@ psych_bool PsychOSSwapCompletionLogging(PsychWindowRecordType *windowRecord, int
                 }
             }
         }
+
+        // For external display backends like Vulkan only. Request a timing feedback event when our
+        // wl_surface has been presented or discarded:
+        if ((cmd == 5) && (windowRecord->specialflags & kPsychExternalDisplayMethod)) {
+            wayland_window_create_feedback(windowRecord);
+        }
     } else {
         // Failed to enable swap events, because they're unsupported without
         // Wayland present_feedback extension support enabled:
@@ -1952,13 +2207,6 @@ double PsychOSAdjustForCompositorDelay(PsychWindowRecordType *windowRecord, doub
     if (nominalIFI > 0) nominalIFI = 1.0 / nominalIFI;
 
     if (!(windowRecord->specialflags & kPsychOpenMLDefective)) {
-        // This was needed to compensate for Westons 1 frame composition lag, but is
-        // no longer needed as of Weston 1.8+ due to Pekka's lag reduction patch.
-        if (FALSE && onlyForCalibration) {
-            targetTime -= nominalIFI;
-            if (PsychPrefStateGet_Verbosity() > 4) printf("PTB-DEBUG: Compensating for Wayland/Weston 1 frame composition lag of %f msecs.\n", nominalIFI * 1000.0);
-        }
-
         // Robustness improvement for swap scheduling on at least Weston 1.8, likely
         // won't hurt on other Wayland implementations - not for use in refresh rate
         // calibration.
@@ -2012,13 +2260,13 @@ double PsychOSAdjustForCompositorDelay(PsychWindowRecordType *windowRecord, doub
                 targetTime += delayFromFrameStart;
 
                 if (PsychPrefStateGet_Verbosity() > 4) {
-                    printf("PTB-DEBUG: Setting swap targetTime to %f secs [fudge %f secs] %f msecs after last swap, for Wayland composition compensation.\n",
+                    printf("PTB-DEBUG:PsychOSAdjustForCompositorDelay(): Setting swap targetTime to %f secs [fudge %f secs] %f msecs after last swap, for Wayland composition compensation.\n",
                            targetTime, delayFromFrameStart, 1000 * (targetTime - windowRecord->time_at_last_vbl));
                 }
             }
             else {
                 if (PsychPrefStateGet_Verbosity() > 4) {
-                    printf("PTB-DEBUG: PsychOSAdjustForCompositorDelay(): No-Op due to lack of baseline data tvbl=%f, videorefresh=%f\n",
+                    printf("PTB-DEBUG:PsychOSAdjustForCompositorDelay(): No-Op due to lack of baseline data tvbl=%f, videorefresh=%f\n",
                            windowRecord->time_at_last_vbl, windowRecord->VideoRefreshInterval);
                 }
             }

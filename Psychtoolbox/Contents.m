@@ -1,5 +1,5 @@
 % Psychtoolbox.
-% Version 3.0.19      17 February 2023
+% Version 3.0.22      27 May 2025
 %
 % The Psychophysics Toolbox is a collection of Octave and Matlab functions
 % that extend the language to give you exquisite control of your computer
@@ -75,8 +75,7 @@
 % PsychGLImageProcessing - Built-in image processing via graphics hardware.
 % PsychGPGPU             - General purpose accelerated computing on GPUs.
 % PsychHardware          - Interface to plug-in hardware.
-% PsychInitialize        - Initialize and deinitialize MATLAB
-% PsychMatlabTests       - Document the few bugs in Matlab 5.2.1.
+% PsychInitialize        - Initialize and deinitialize the toolbox.
 % PsychObsolete          - Obsolete routines, still present for compatibility.
 % PsychOpenGL            - Routines for low-level access to OpenGL 3D graphics.
 % Psychometric           - Psychometric function fitting.
@@ -96,35 +95,15 @@
 %
 % IMPORTANT NEWS:
 %
-% You can now financially contribute to Psychtoolbox sustainability, upkeep
-% and continued improvement by buying a "Psychtoolbox Support Membership", which
-% also includes some paid support for questions regarding its use, or issues
-% you may have with it. We also offer paid feature development and other
-% useful commercial services.
+% Psychtoolbox mex files for GNU Octave and Mathworks Matlab for Apple
+% macOS and Microsoft Windows, as well as the Matlab mex files for GNU
+% Linux, will require a paid software license key to work. New first time
+% installations of Psychtoolbox on a machine will work for free for up to
+% 14 days after first use. After that time period, a paid subscription
+% license with associated license key will be required.
 %
-% Please type 'PsychPaidSupportAndServices' to learn more.
+% Psychtoolbox on these system configurations will connect to our network
+% licensing servers after installation and after you have given consent, to
+% enable you to use it. For more information about our license management,
+% type 'help PsychLicenseHandling'.
 %
-
-% The OS 9 version was this:
-%   PsychBasic            - Basic support routines for psychophysics.
-%   PsychBeta             - Under development.  May be useful but no promises.
-%   PsychCal              - Calibrate your video monitors.
-%   PsychCalDemoData      - Demo calibration data.
-%   PsychClipboard        - Extend interface between Matlab and clipboard.
-%   PsychColorimetric     - Colorimetric calculations.
-%   PsychColorimetricData - Standard colorimetric data.
-%   PsychContributed      - Contributed programs, not supported by us.
-%   PsychDemos            - Show how to use the Psychtoolbox.
-%   PsychFiles            - Process text files.
-%   PsychGamma            - Fit monitor gamma functions.
-%   PsychHardware         - Interface to optional hardware.
-%   PsychMatlabTests      - Document the few bugs in Matlab 5.2.1.
-%   PsychObsolete         - Obsolete routines, still present for compatibility.
-%   Psychometric          - Psychometric function fitting.
-%   PsychOneliners        - Trivial, but handy, functions.
-%   PsychOptics           - Optics calculations, mostly for human optics.
-%   PsychProbability      - Probability and statistics.
-%   PsychQuest            - Threshold estimation procedure.
-%   PsychRects            - Manipulate rectangles for drawing.
-%   PsychSignal           - Signal processing and math routines.
-%   PsychTests            - Evaluate performance of software and hardware.

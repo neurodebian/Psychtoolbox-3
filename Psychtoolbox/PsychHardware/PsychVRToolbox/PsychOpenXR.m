@@ -1,7 +1,7 @@
 function varargout = PsychOpenXR(cmd, varargin)
 % PsychOpenXR - A high level driver for OpenXR supported XR hardware.
 %
-% Copyright (c) 2022-2023 Mario Kleiner. Licensed to you under the MIT license.
+% Copyright (c) 2022-2025 Mario Kleiner. Licensed to you under the MIT license.
 % Our underlying PsychOpenXRCore mex driver builds against the Khronos OpenXR SDK public
 % headers, and links against the OpenXR open-source dynamic loader, to implement the
 % interface to a system-installed OpenXR runtime. These components are dual-licensed by
@@ -324,8 +324,7 @@ function varargout = PsychOpenXR(cmd, varargin)
 % about hand tracking capabilities as a bitmask in info.articulatedHandTrackingSupported:
 % A value of +1 means that basic OpenXR hand tracking of finger and hand joint poses,
 % typically for both hands of a user, is supported. A value of zero means lack of
-% any support. NOTE: Current Psychtoolbox releases do not yet support hand tracking,
-% this help text is preparation for future use and subject to incompatible changes!
+% any support.
 %
 % If hand tracking is requested via the keyword, and supported, then the user
 % script can request return of hand tracking sample data by calling the
@@ -378,25 +377,47 @@ function varargout = PsychOpenXR(cmd, varargin)
 % driver = Function handle to the actual driver for the device, e.g., @PsychOpenXR.
 % type   = Defines the type/vendor of the device, e.g., 'OpenXR'.
 % modelName = Name string with the name of the model of the device, e.g., 'Rift DK2'.
+%
 % separateEyePosesSupported = 1 if use of PsychOpenXR('GetEyePose') will improve
 %                             the quality of the VR experience, 0 if no improvement
 %                             is to be expected, so 'GetEyePose' can be avoided
 %                             to save processing time without a loss of quality.
 %                             This *always* returns 0 on this PsychOpenXR driver.
 %
-% eyeTrackingSupported = Info about eye gaze tracking capabilities. A value
-% of +1 means at least one gaze vector is reported. A value of +2 means
-% reporting of binocular per-eye tracking data is supported. A value of
-% +1024 means that HTC's proprietary SRAnipal eyetracking is available for
-% more extensive gaze data reporting.
 %
-% articulatedHandTrackingSupported = Info about hand tracking capabilities. A
-% value of +1 means that basic articulated hand tracking is supported, usually
-% for both hands. Zero means no support for articulated hand tracking. The hand
-% tracking methods could be based on cameras and computer-vision markerless optical
-% tracking, or on marker based tracking, or it could be, e.g., with some sensor
-% glove input device, or with any other suitable future modality supported by your
-% OpenXR runtime.
+% VRControllersSupported = 1 if use of PsychVRHMD('GetInputState') will provide input
+%                            from actual dedicated VR controllers. Value is 0 if
+%                            controllers are only emulated to some limited degree,
+%                            e.g., by abusing a regular keyboard as a button controller,
+%                            ie. mapping keyboard keys to OVR.Button_XXX buttons.
+%
+% handTrackingSupported = 1 if PsychVRHMD('PrepareRender') with reqmask +2 will provide
+%                           valid tracked hand controller info, 0 if this is not supported
+%                           and will just report fake values. A driver may report 1 here but
+%                           still don't provide meaningful info at runtime, e.g., if required
+%                           tracking hardware is missing or gets disconnected. The flag
+%                           just aids extra performance optimizations in your code.
+%
+% hapticFeedbackSupported = 1 if basic haptic feedback is supported in principle on some controllers.
+%                             0 otherwise. A flag of zero means no haptic feedback support, but
+%                             a flag of 1 may still mean no actual feedback, e.g., if suitable
+%                             hardware is not configured and present. Flags higher than 1 can
+%                             signal presence of more advanced haptic feedback, so you should
+%                             test for a setting == 1 to know if PsychVRHMD('HapticPulse') works
+%                             in principle, which is considered basic feedback ability.
+%
+% eyeTrackingSupported = Info about eye gaze tracking capabilities. A value of +1 means at least one
+%                        gaze vector is reported. A value of +2 means reporting of binocular per-eye
+%                        tracking data is supported. A value of +1024 means that HTC's proprietary
+%                        SRAnipal eyetracking is available for more extensive gaze data reporting.
+%
+% articulatedHandTrackingSupported = Info about hand tracking capabilities. A value of +1 means that
+%                                    basic articulated hand tracking is supported, usually for both
+%                                    hands. Zero means no support for articulated hand tracking. The
+%                                    hand tracking methods could be based on cameras and computer vision
+%                                    markerless optical tracking, or on marker based tracking, or it
+%                                    could be, e.g., with some sensor glove input device, or with any
+%                                    other suitable future modality supported by your OpenXR runtime.
 %
 %
 % The returned struct may contain more information, but the fields mentioned
@@ -790,8 +811,6 @@ function varargout = PsychOpenXR(cmd, varargin)
 % +8 = Request return of articulated hand tracking information on suitable OpenXR
 %      systems.
 %
-%      NOTE: This feature is NOT YET IMPLEMENTED in current Psychtoolbox releases!
-%
 %      Returned information may represent the latest available measured hand and
 %      finger configuration data, or it may be predicted configuration information
 %      for the specified 'targetTime', computed via interpolation or extrapolation
@@ -801,7 +820,30 @@ function varargout = PsychOpenXR(cmd, varargin)
 %      The following fields are mandatory as part of the returned state struct,
 %      if hand tracking is supported and enabled and requested:
 %
-%      TODO
+%      'hand' denotes the id of the tracked hand: 1 for the left hand, 2
+%      for the right hand. 'joint' is the joint id of a specific finger or
+%      hand joint. See the list of 26 defined joints below, with symbolic
+%      names or numeric indices.
+%
+%      state.trackedHandStatus(hand) = Is the given 'hand' tracked, ie. its pose
+%                                      and possible joint configurations are
+%                                      at least partially known? 0 = No, 1 = Yes.
+%
+%      state.trackedJoints(hand, joint) = Is the given 'joint' tracked? 0 = No, 1 = Yes.
+%
+%      state.trackedJointsRadius(hand, joint) = What is the estimated radius of the given 'joint' in meters?
+%
+%      state.trackedJointsPosition(hand, 1:3, joint) = A 3 row matrix with the x, y, and z positions of the 'joint'.
+%
+%      state.trackedJointsOrientationQuat(hand, 1:4, joint) = A 4 component orientation quaternion for the 'joint'.
+%
+%      state.localJointPoseMatrix{hand} = A 3D array of OpenGL style 4x4 pose matrices describing joint position
+%                                         and orientation. Format is (:,:,joint) where 'joint' selects a 4x4 matrix
+%                                         slice for joint 'joint' on hand 'hand'.
+%
+%      state.globalJointPoseMatrix{hand} = A 3D array identical in format to localJointPoseMatrix, but transformed
+%                                          via the user supplied global 'userTransformMatrix' transformation matrix to
+%                                          the PsychVRHMD('PrepareRender', ...) subfunction.
 %
 %      The following constants allow to index the returned set of 26 hand joints
 %      by symbolic names for the different parts of the fingers and hand, or you
@@ -834,7 +876,6 @@ function varargout = PsychOpenXR(cmd, varargin)
 %        OVR.XR_HAND_JOINT_LITTLE_DISTAL = 24 + 1;
 %        OVR.XR_HAND_JOINT_LITTLE_TIP = 25 + 1;
 %
-%      TODO, IMPLEMENTATION OF FEATURE NOT YET FINISHED.
 %
 %
 % More flags to follow...
@@ -1521,36 +1562,30 @@ if strcmpi(cmd, 'PrepareRender')
       error('PsychOpenXR:PrepareRender: Articulated hand tracking data requested, but not supported or enabled!');
     end
 
-    global tHandsMsecs
-    handy = tic;
+    %global tHandsMsecs
+    %handy = tic;
+
     % Store raw data returned from driver:
     result.handTrackingRaw = hands;
 
     for hand = 1:length(hands)
-      result.trackedHandStatus(hand) = hands(hand).Tracked;
       jointsMatrix = hands(hand).Joints;
+      numjoints = size(jointsMatrix, 2);
+
+      result.trackedHandStatus(hand) = hands(hand).Tracked;
       result.trackedJoints(hand, :) = jointsMatrix(1, :) == 3;
       result.trackedJointsRadius(hand, :) = jointsMatrix(2, :);
       result.trackedJointsPosition(hand, 1:3, :) = jointsMatrix(3:5, :);
       result.trackedJointsOrientationQuat(hand, 1:4, :) = jointsMatrix(6:9, :);
 
-      % Iterate over all joints:
-      for j = 1:size(jointsMatrix, 2)
-        % Joint tracked and valid?
-        if result.trackedJoints(hand, j)
-          % Convert j'th joint pose vector to 4x4 OpenGL right handed reference frame matrix:
-          result.localJointPoseMatrix{hand, j} = eyePoseToCameraMatrix(jointsMatrix(3:9, j)');
+      % Get local joint pose vectors as 4x4 OpenGL right handed reference frame matrices:
+      result.localJointPoseMatrix{hand} = hands(hand).JointPosesMatrix;
 
-          % Premultiply usercode provided global transformation matrix:
-          result.globalJointPoseMatrix{hand, j} = userTransformMatrix * result.localJointPoseMatrix{hand, j};
-        else
-          % Nope: Assign identity matrices:
-          result.localJointPoseMatrix{hand, j} = diag([1,1,1,1]);
-          result.globalJointPoseMatrix{hand, j} = diag([1,1,1,1]);
-        end
-      end
+      % Map them into users reference frame by premultiplying with userTransformMatrix, as usual:
+      result.globalJointPoseMatrix{hand} = reshape(userTransformMatrix * reshape(hands(hand).JointPosesMatrix, 4, 4 * numjoints), 4, 4, numjoints);
     end
-    % tHandsMsecs(end+1) = 1000 * toc(handy);
+
+    %tHandsMsecs(end+1) = 1000 * toc(handy);
   end
 
   varargout{1} = result;
@@ -1685,25 +1720,8 @@ if strcmpi(cmd, 'Start')
 
   % Use of multi-threading only in stopped 3D mode? Then we need to stop thread now.
   if (hmd{myhmd.handle}.multiThreaded == 1) && PsychOpenXRCore('PresenterThreadEnable', hmd{myhmd.handle}.handle)
-    % Stop thread:
-
-    % Need Windows runtimes workaround?
-    if hmd{myhmd.handle}.needWinThreadingWa1 && false
-      texLeft = PsychOpenXRCore('GetNextTextureHandle', hmd{myhmd.handle}.handle, 0);
-      if hmd{myhmd.handle}.StereoMode > 0
-        texRight = PsychOpenXRCore('GetNextTextureHandle', hmd{myhmd.handle}.handle, 1);
-      else
-        texRight = [];
-      end
-    end
-
     % Shutdown thread, wait for it to be done:
     PsychOpenXRCore('PresenterThreadEnable', hmd{myhmd.handle}.handle, 0);
-
-    if hmd{myhmd.handle}.needWinThreadingWa1 && false
-      % Switch back to OpenXR swapchain backing textures:
-      Screen('Hookfunction', hmd{myhmd.handle}.win, 'SetDisplayBufferTextures', '', texLeft, texRight);
-    end
   end
 
   % Mark userscript driven tracking as active:
@@ -1732,12 +1750,6 @@ if strcmpi(cmd, 'Stop')
      ((PsychOpenXRCore('NeedLocateForProjectionLayers', hmd{myhmd.handle}.handle) && ~hmd{myhmd.handle}.switchTo2DViewsOnStop) || ...
       (hmd{myhmd.handle}.switchTo2DViewsOnStop && hmd{myhmd.handle}.needMTFor2DQuadViews)) && ...
      ~PsychOpenXRCore('PresenterThreadEnable', hmd{myhmd.handle}.handle)
-
-    % Need Windows runtimes workaround?
-    if hmd{myhmd.handle}.needWinThreadingWa1 && false
-      % Switch back to Screen's own backing textures:
-      Screen('Hookfunction', hmd{myhmd.handle}.win, 'SetDisplayBufferTextures', '',hmd{myhmd.handle}.oldglLeftTex, hmd{myhmd.handle}.oldglRightTex);
-    end
 
     % Start thread:
     PsychOpenXRCore('PresenterThreadEnable', hmd{myhmd.handle}.handle, 1);
@@ -1902,7 +1914,7 @@ end
 if strcmpi(cmd, 'Open')
   if isempty(firsttime)
     firsttime = 1;
-    fprintf('Copyright (c) 2022-2024 Mario Kleiner. Licensed to you under the MIT license.\n');
+    fprintf('Copyright (c) 2022-2025 Mario Kleiner. Licensed to you under the MIT license.\n');
     fprintf('Our underlying PsychOpenXRCore mex driver builds against the Khronos OpenXR SDK public\n');
     fprintf('headers, and links against the OpenXR open-source dynamic loader, to implement the\n');
     fprintf('interface to a system-installed OpenXR runtime. These components are dual-licensed by\n');
@@ -2527,7 +2539,7 @@ end
 % [winRect, ovrfbOverrideRect, ovrSpecialFlags, ovrMultiSample, screenid] = PsychOpenXR('OpenWindowSetup', hmd, screenid, winRect, ovrfbOverrideRect, ovrSpecialFlags, ovrMultiSample);
 if strcmpi(cmd, 'OpenWindowSetup')
   myhmd = varargin{1};
-  screenid = varargin{2}; %#ok<NASGU>
+  screenid = varargin{2};
   winRect = varargin{3};
   ovrfbOverrideRect = varargin{4}; %#ok<NASGU>
   ovrSpecialFlags = varargin{5};

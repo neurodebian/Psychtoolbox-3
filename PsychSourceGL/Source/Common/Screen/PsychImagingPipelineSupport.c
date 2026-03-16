@@ -626,25 +626,21 @@ void PsychInitializeImagingPipeline(PsychWindowRecordType *windowRecord, int ima
             break;
 
             case GL_RGBA_FLOAT16_APPLE:
-                printf("PTB-INFO: Will use 16 bits per color component floating point framebuffer for stimulus drawing. ");
+                printf("PTB-INFO: Will use 16 bits per color component floating point framebuffer for stimulus drawing.\n");
                 if (windowRecord->gfxcaps & kPsychGfxCapFPBlend16) {
-                    printf("Alpha blending should work correctly.\n");
                     if (imagingmode & kPsychUse32BPCFloatAsap) {
                         printf("PTB-INFO: Can't use 32 bit precision for drawing because hardware doesn't support alpha-blending in 32 bpc.\n");
                     }
                 }
                 else {
-                    printf("Alpha blending may not work on your system with this setup, but only for 8 bits per color component mode.\n");
+                    printf("PTB-WARNING: Alpha blending may not work on your system with this setup, but only for 8 bits per color component mode.\n");
                 }
             break;
 
             case GL_RGBA_FLOAT32_APPLE:
-                printf("PTB-INFO: Will use 32 bits per color component floating point framebuffer for stimulus drawing. ");
-                if (windowRecord->gfxcaps & kPsychGfxCapFPBlend32) {
-                    printf("Alpha blending should work correctly.\n");
-                }
-                else {
-                    printf("Alpha blending may not work on your system with this setup, but only for lower precision modes.\n");
+                printf("PTB-INFO: Will use 32 bits per color component floating point framebuffer for stimulus drawing.\n");
+                if (!(windowRecord->gfxcaps & kPsychGfxCapFPBlend32)) {
+                    printf("PTB-WARNING: Alpha blending may not work on your system with this setup, but only for lower precision modes.\n");
                 }
             break;
         }
@@ -882,23 +878,23 @@ void PsychInitializeImagingPipeline(PsychWindowRecordType *windowRecord, int ima
     if (PsychPrefStateGet_Verbosity()>2) {
         switch (fboInternalFormat) {
             case GL_RGBA8:
-                printf("PTB-INFO: Will use 8 bits per color component framebuffer for stimulus post-processing (if any).\n");
+                printf("PTB-INFO: Will use 8 bits per color component framebuffer for any stimulus post-processing.\n");
             break;
 
             case GL_RGBA16:
-                printf("PTB-INFO: Will use 16 bits per color component unsigned integer framebuffer for stimulus post-processing (if any).\n");
+                printf("PTB-INFO: Will use 16 bits per color component unsigned integer framebuffer for any stimulus post-processing.\n");
             break;
 
             case GL_RGBA16_SNORM:
-                printf("PTB-INFO: Will use 15 bits per color component signed integer framebuffer for stimulus post-processing (if any).\n");
+                printf("PTB-INFO: Will use 15 bits per color component signed integer framebuffer for any stimulus post-processing.\n");
             break;
 
             case GL_RGBA_FLOAT16_APPLE:
-                printf("PTB-INFO: Will use 16 bits per color component floating point framebuffer for stimulus post-processing (if any).\n");
+                printf("PTB-INFO: Will use 16 bits per color component floating point framebuffer for any stimulus post-processing.\n");
             break;
 
             case GL_RGBA_FLOAT32_APPLE:
-                printf("PTB-INFO: Will use 32 bits per color component floating point framebuffer for stimulus post-processing (if any).\n");
+                printf("PTB-INFO: Will use 32 bits per color component floating point framebuffer for any stimulus post-processing.\n");
             break;
         }
     }
@@ -1244,7 +1240,7 @@ void PsychInitializeImagingPipeline(PsychWindowRecordType *windowRecord, int ima
 
                 // Are we supposed to use externally injected colorbuffer textures?
                 if (imagingmode & kPsychUseExternalSinkTextures) {
-                    if (PsychPrefStateGet_Verbosity() > 2)
+                    if (PsychPrefStateGet_Verbosity() > 3)
                         printf("PTB-INFO: Using external textures as sinks for redirected output mode.\n");
                 }
 
@@ -1279,7 +1275,7 @@ void PsychInitializeImagingPipeline(PsychWindowRecordType *windowRecord, int ima
 
             // Are we supposed to use externally injected colorbuffer textures?
             if (imagingmode & kPsychUseExternalSinkTextures) {
-                if (PsychPrefStateGet_Verbosity() > 2)
+                if (PsychPrefStateGet_Verbosity() > 3)
                     printf("PTB-INFO: Using external textures as sinks for redirected output mode.\n");
             }
 
@@ -2095,7 +2091,7 @@ psych_bool PsychSetPipelineExportTextureInteropMemory(PsychWindowRecordType *win
  *
  */
 psych_bool PsychSetPipelineExportTexture(PsychWindowRecordType *windowRecord, int leftglHandle, int rightglHandle, int glTextureTarget, int format,
-                                         int multiSample, int width, int height)
+                                         int multiSample, int width, int height, int deleteOldTexIfPossible)
 {
     int viewid;
     GLint drawFBO = 0, readFBO = 0;
@@ -2218,7 +2214,16 @@ psych_bool PsychSetPipelineExportTexture(PsychWindowRecordType *windowRecord, in
             PsychTestForGLErrors();
         }
         else {
-            // Success: Assign new values:
+            // Success. Delete old coltexid if any. It is zero if fbo unsharing happened, so the new finalizedFBO
+            // doesn't have one yet, and the drawBufferFBO keeps the old FBO and color backing texture:
+            if (fbo->coltexid && deleteOldTexIfPossible) {
+                glDeleteTextures(1, &fbo->coltexid);
+
+                if (PsychPrefStateGet_Verbosity() > 3)
+                    printf("PTB-DEBUG: For viewid=%i: fbo %i, deleting old interop backing texture id %i.\n", viewid, fbo->fboid, fbo->coltexid);
+            }
+
+            // Assign new values:
             fbo->coltexid = (GLuint) ((viewid == 0) ? leftglHandle : rightglHandle);
             fbo->textarget = (GLenum) glTextureTarget;
             fbo->format = (GLenum) format;
@@ -3196,10 +3201,14 @@ void PsychNormalizeTextureOrientation(PsychWindowRecordType *sourceRecord)
     // step to transform the texture into normalized orientation. Non-planar textures would also
     // wreak havoc if not converted into standard pixel-interleaved format:
     if (sourceRecord->textureOrientation != 2 || isplanar) {
-        if (PsychPrefStateGet_Verbosity()>5) printf("PTB-DEBUG: In PsychNormalizeTextureOrientation(): Performing GPU renderswap or format conversion for source gl-texture %i --> ", sourceRecord->textureNumber);
+        if (PsychPrefStateGet_Verbosity()>5) printf("PTB-DEBUG: In PsychNormalizeTextureOrientation(): Performing GPU renderswap or format conversion for source gl-texture %i ...\n", sourceRecord->textureNumber);
 
         // Soft-reset drawing engine in a safe way:
         PsychSetDrawingTarget((PsychWindowRecordType*) 0x1);
+
+        // The soft reset will have potentially switched to the wrong OpenGL context if multiple
+        // onscreen windows are in use, which ends badly. Manually switch to the proper context:
+        PsychSetGLContext(sourceRecord);
 
         // Normalization needed. Create a suitable FBO as rendertarget:
         needzbuffer = FALSE;
@@ -3417,7 +3426,7 @@ void PsychNormalizeTextureOrientation(PsychWindowRecordType *sourceRecord)
         sourceRecord->textureOrientation = 2;
 
         // GPU renderswap finished.
-        if (PsychPrefStateGet_Verbosity()>5) printf("%i.\n", sourceRecord->textureNumber);
+        if (PsychPrefStateGet_Verbosity()>5) printf("PTB-DEBUG: In PsychNormalizeTextureOrientation(): New coltex %i.\n", sourceRecord->textureNumber);
     }
 
     return;
