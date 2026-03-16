@@ -190,6 +190,9 @@ override_dh_auto_install:
 	: # Remove unreproducible files
 	find debian/ -name octave-workspace | xargs -r rm
 
+	: # Remove .la libraries we do not need (if any)
+	find debian/ -name "*.la" -delete
+
 override_dh_makeshlibs:
 	dh_makeshlibs
 	: # Provide Octave:Depends, do it in backports friendly way
