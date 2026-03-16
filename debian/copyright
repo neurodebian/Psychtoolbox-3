@@ -1,17 +1,17 @@
-Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: Psychtoolbox-3
 Upstream-Contact: Mario Kleiner <mario.kleiner@tuebingen.mpg.de>
-Source: http://psychtoolbox-3.googlecode.com/svn
+Source: https://github.com/Psychtoolbox-3/Psychtoolbox-3
 
 Files: *
 Copyright:
   1996-2007, David Brainard
   1996-2007, Denis Pelli
   1996-2007, Allen Ingling  <allen.ingling@nyu.edu>
-  2005-2020, Mario Kleiner <mario.kleiner@tuebingen.mpg.de>
+  2005-2026, Mario Kleiner <mario.kleiner@tuebingen.mpg.de>
 License: Expat
 
-Files: Psychtoolbox/PsychRadiometric/PsychISO2007MPE
+Files: Psychtoolbox/PsychRadiometric/PsychISO2007MPE/*
 Copyright: 2013, David Brainard
 License: Expat
 
@@ -37,8 +37,7 @@ Copyright:
 License: LGPL-2+
 
 
-Files: PsychSourceGL/Cohorts/PortAudio/pa_*
-       PsychSourceGL/Source/Common/PsychPortAudio/pa_*
+Files: PsychSourceGL/Source/Common/PsychPortAudio/pa_*
        PsychSourceGL/Source/Common/PsychPortAudio/portaudio.h
 Copyright:
   1999-2006 Ross Bencina, Phil Burk
@@ -87,7 +86,7 @@ Copyright: 2001-2008, Jens Ayton <jens@ayton.se>
 License: Expat
 Comment: Origin for embedded copy: https://github.com/Ahruman/KeyNaming
 
-Files: Psychtoolbox/PsychOpenGL/MOGL
+Files: Psychtoolbox/PsychOpenGL/MOGL/*
 Copyright: 2006, Richard F. Murray
            2006-2010, Mario Kleiner
 License: Expat
@@ -97,11 +96,11 @@ Copyright:  2007-2012 The Khronos Group Inc.
 License: Expat
 
 
-Files: Psychtoolbox/PsychDemos/OpenGL4MatlabDemos/GLSLDemoShaders
+Files: Psychtoolbox/PsychDemos/OpenGL4MatlabDemos/GLSLDemoShaders/*
 Copyright: 2002-2006  3Dlabs Inc. Ltd
 License: BSD-3
 
-Files: Psychtoolbox/PsychDemos/SoundFiles
+Files: Psychtoolbox/PsychDemos/SoundFiles/*
 Copyright: 1999-2007 OpenAl Authors
 License: LGPL-2+
 Comment: Origin: http://www.openal.org
@@ -126,12 +125,12 @@ Comment:
   * IT IS STRICTLY USE AT YOUR OWN RISK.  */
 
 
-Files: Psychtoolbox/PsychHardware/DatapixxToolbox
+Files: Psychtoolbox/PsychHardware/DatapixxToolbox/*
 Copyright: 2009, VPixx Technologies http://www.vpixx.com
            2009-2010, Mario Kleiner
 License: GPL-2+
 
-Files: Psychtoolbox/PsychHardware/iViewXToolbox/tcp_udp_ip
+Files: Psychtoolbox/PsychHardware/iViewXToolbox/tcp_udp_ip/*
 Copyright: 1998-2003,  Peter Rydesäter et al
 License: GPL-2+
 
@@ -153,12 +152,71 @@ Files: PsychSourceGL/Source/Common/Screen/tinyexr.*
 Copyright: 2014 - 2019, Syoyo Fujita and many contributors
 License: BSD-3
 
-Files: Psychtoolbox/PsychDemos/OpenEXRImages
+Files: Psychtoolbox/PsychDemos/OpenEXRImages/*
 Copyright:  2004, Industrial Light & Magic, a division of Lucasfilm Entertainment Company Ltd
 License: BSD-3
 
+Files: setup.py
+Copyright:
+  2018-2023, Mario Kleiner
+  2020-2022, Alex Forrence
+  2019, Jonathan Peirce
+  2019, Richard Höchenberger
+  2019, Eric Larson
+  2019, Bernhard M. Wiedemann
+License: Expat
+
+Files: pyproject.toml
+Copyright: 2022, Alex Forrence
+License: Expat
+
+Files: PsychPython/psychtoolbox/__init__.py
+Copyright: 2018, Mario Kleiner
+License: Expat
+
+Files: PsychPython/psychtoolbox/hid.py
+Copyright: 2018, Jon Peirce
+License: Expat
+
+Files: PsychPython/psychtoolbox/_abi3_wheel.py
+Copyright:
+  2022, Joe Rickerby
+  2022, Alex Forrence
+License: Apache-2.0
+
+Files: PsychSourceGL/Cohorts/SRAnipalMex.cpp
+Copyright: 2023, Mario Kleiner
+License: Expat
+
+Files: PsychSourceGL/Cohorts/libwaffle/LICENSE.txt
+Copyright: 2012, Intel Corporation
+License: BSD-2-clause
+
+Files: PsychSourceGL/Source/Linux/Screen/Wayland/*
+Copyright:
+  2008-2013, Kristian Høgsberg
+  2010-2013, Intel Corporation
+  2013-2016, Collabora, Ltd.
+  2014-2015, Jonas Ådahl
+  2015, Red Hat Inc.
+  2017, Red Hat Inc.
+  2018, The Chromium Authors
+  2021-2024, Xaver Hugl
+  2021, Emmanuel Gil Peyrot
+  2022, Kenny Levinsen
+  2023, Valve Corporation
+  2023, Simon Ser
+  2024, Neal Gompa
+  2024, Matthias Klumpp
+  2024, Vlad Zahorodnii
+License: Expat
+Comment: Generated upstream from Wayland protocol XML specifications
+ using wayland-scanner.
+
 Files: debian/*
-Copyright: 2010-2020, Yaroslav Halchenko <debian@onerussian.com>
+Copyright:
+  2010-2026, Yaroslav Halchenko <debian@onerussian.com>
+  2026, Étienne Mollier <emollier@debian.org>
 License: Expat
 
 
@@ -229,6 +287,32 @@ License: BSD-3
   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+License: Apache-2.0
+  On Debian systems, the complete text of the Apache License Version 2.0
+  can be found in "/usr/share/common-licenses/Apache-2.0".
+
+License: BSD-2-clause
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
+  .
+  * Redistributions of source code must retain the above copyright notice,
+    this list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+  .
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  POSSIBILITY OF SUCH DAMAGE.
 
 License: SGI-FSL-B-1.1
   License Applicability. Except to the extent portions of this file are
