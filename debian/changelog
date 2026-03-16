@@ -1,13 +1,19 @@
 psychtoolbox-3 (3.0.22.2.dfsg1-1) unstable; urgency=medium
 
+  [ Étienne Mollier ]
+
+  * Introduce a python3-psychtoolbox package. (Closes: #1128693)
+
+  [ Yaroslav Halchenko ]
+
   * Recent upstream release
     - dfsg_upstream was tuned to remove .../NVidiaOptimus/ (Closes: #1128000)
-  * Introduce a python3-psychtoolbox package. (Closes: #1128693)
   * d/control
     - remove mentioning of octave-pkg-dev which was removed from debian
       and should no longer be needed across backports (Closes: #1116472)
+  * d/copyright -- major update with claude code assistance
 
- -- Étienne Mollier <emollier@debian.org>  Tue, 24 Feb 2026 22:37:25 +0100
+ -- Yaroslav Halchenko <debian@onerussian.com>  Mon, 16 Mar 2026 11:48:45 -0400
 
 psychtoolbox-3 (3.0.19.14.dfsg1-1) unstable; urgency=medium
 
