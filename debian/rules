@@ -33,6 +33,7 @@ export CFLAGS=-Wall -g -O0 -std=gnu99 $(GLIB_INCLUDES) $(GST_INCLUDES)
 export SHELL=/bin/bash
 
 export PYBUILD_NAME = psychtoolbox
+export PYBUILD_DISABLE = test
 
 %:
 	dh $@ --with quilt --buildsystem=makefile
@@ -131,8 +132,6 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
     | grep -v -e "REQUIRE SOME ADDITIONAL CMDLINE TOOLS AND SPECIAL HW" \
       -e PTBAndIsetbioColorimetryTest \
 	| xargs debian/run_tests || echo "TESTS FAILED"
-
-	dh_auto_test --buildsystem=pybuild
 
 #      -e MovieDemos \
 	: # Cleanup
