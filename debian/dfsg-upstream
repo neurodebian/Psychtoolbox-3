@@ -40,12 +40,16 @@ $RM -fr ./PsychSourceGL/Cohorts/Kinect-* \
     ./PsychSourceGL/Cohorts/freeglut \
     ./PsychSourceGL/Cohorts/libnvstusb-*
 
+
 # Binary built against ATI/AMD SDK with questionable
 # redistributability
 $RM -f Psychtoolbox/PsychContributed/ATIRadeonperf_Linux*
 
 # Some binary pre-built drivers from Mario.  I am leaving sources for now
 $RM -f ./Psychtoolbox/PsychHardware/LinuxDrivers{,/*}/*.so_* 
+
+# Some components removed already upstream, and causing issues otherwise
+$RM -fr ./Psychtoolbox/PsychHardware/LinuxDrivers/NVidiaOptimus/
 
 # libwaffle -- for now only in binary form -- will ship in octave.*-nonfree for now
 $RM -f ./Psychtoolbox/PsychContributed/ArmArch/libwaffle*_glxegl \
