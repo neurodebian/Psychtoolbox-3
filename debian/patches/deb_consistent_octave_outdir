@@ -1,6 +1,6 @@
 --- a/PsychSourceGL/Source/linuxmakeitoctave3.m
 +++ b/PsychSourceGL/Source/linuxmakeitoctave3.m
-@@ -66,6 +66,9 @@ if ~isempty(strfind(computer, '_64'))
+@@ -74,6 +74,9 @@ if ~isempty(strfind(computer, '_64'))
  else
      target = 'PsychBasic/Octave3LinuxFiles/';
  end
@@ -9,4 +9,4 @@
 +target = 'PsychBasic/Octave3LinuxFiles/';
  
  % Special folder for ARM binaries:
- if ~isempty(strfind(computer, 'arm'))
+ if IsARM
