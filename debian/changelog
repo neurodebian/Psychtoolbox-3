@@ -1,13 +1,8 @@
-psychtoolbox-3 (3.0.19.15.dfsg1-1) UNRELEASED; urgency=medium
+psychtoolbox-3 (3.0.22.2.dfsg1-1) unstable; urgency=medium
 
-  * Now not so fresh upstream release
-    - it was uploaded but I guess rejected for some reason
-
- -- Yaroslav Halchenko <debian@onerussian.com>  Fri, 27 Feb 2026 21:07:17 -0500
-
-psychtoolbox-3 (3.0.19.14.dfsg1-1.1) UNRELEASED; urgency=medium
-
-  * Attempt to introduce a python3-psychtoolbox package.
+  * Recent upstream release
+    - dfsg_upstream was tuned to remove .../NVidiaOptimus/ (Closes: #1128000)
+  * Introduce a python3-psychtoolbox package. (Closes: #1128693)
 
  -- Étienne Mollier <emollier@debian.org>  Tue, 24 Feb 2026 22:37:25 +0100
 
