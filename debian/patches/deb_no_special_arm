@@ -1,12 +1,16 @@
 --- a/PsychSourceGL/Source/linuxmakeitoctave3.m
 +++ b/PsychSourceGL/Source/linuxmakeitoctave3.m
-@@ -71,9 +71,11 @@ end
+@@ -79,6 +79,7 @@ end
  target = 'PsychBasic/Octave3LinuxFiles/';
  
  % Special folder for ARM binaries:
 +if 0                            % for now no special builds on ARM on Debian's
- if ~isempty(strfind(computer, 'arm'))
-     target = 'PsychBasic/Octave3LinuxFilesARM/';
+ if IsARM
+     if Is64Bit
+       target = 'PsychBasic/Octave3LinuxFilesARM64/';
+@@ -86,6 +87,7 @@ if IsARM
+       target = 'PsychBasic/Octave3LinuxFilesARM/';
+     end
  end
 +end
  
